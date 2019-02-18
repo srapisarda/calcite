@@ -26,6 +26,7 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.schema.FilterableTable;
+import org.apache.calcite.schema.Statistic;
 import org.apache.calcite.sql.SqlKind;
 
 import java.io.File;
@@ -41,8 +42,8 @@ import java.util.List;
 public class CsvFilterableTable extends CsvTable
     implements FilterableTable {
   /** Creates a CsvFilterableTable. */
-  CsvFilterableTable(File file, RelProtoDataType protoRowType) {
-    super(file, protoRowType);
+  CsvFilterableTable(File file, RelProtoDataType protoRowType, Statistic statistic) {
+    super(file, protoRowType, statistic);
   }
 
   public String toString() {

@@ -20,6 +20,8 @@ import org.apache.calcite.adapter.java.JavaTypeFactory;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelProtoDataType;
+import org.apache.calcite.schema.Statistic;
+import org.apache.calcite.schema.Statistics;
 import org.apache.calcite.schema.impl.AbstractTable;
 
 import java.io.File;
@@ -32,13 +34,20 @@ import java.util.List;
 public abstract class CsvTable extends AbstractTable {
   protected final File file;
   private final RelProtoDataType protoRowType;
+  private final Statistic statistic;
   protected List<CsvFieldType> fieldTypes;
 
   /** Creates a CsvAbstractTable. */
-  CsvTable(File file, RelProtoDataType protoRowType) {
+  CsvTable(File file, RelProtoDataType protoRowType, Statistic statistic) {
     this.file = file;
     this.protoRowType = protoRowType;
+    this.statistic = statistic;
   }
+
+  CsvTable(File file, RelProtoDataType protoRowType) {
+    this(file, protoRowType, Statistics.UNKNOWN);
+  }
+
 
   public RelDataType getRowType(RelDataTypeFactory typeFactory) {
     if (protoRowType != null) {
@@ -58,6 +67,10 @@ public abstract class CsvTable extends AbstractTable {
   /** Various degrees of table "intelligence". */
   public enum Flavor {
     SCANNABLE, FILTERABLE, TRANSLATABLE
+  }
+
+  @Override public Statistic getStatistic() {
+    return statistic;
   }
 }
 

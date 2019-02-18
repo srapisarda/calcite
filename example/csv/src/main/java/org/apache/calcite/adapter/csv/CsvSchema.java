@@ -16,6 +16,8 @@
  */
 package org.apache.calcite.adapter.csv;
 
+import org.apache.calcite.schema.Statistic;
+import org.apache.calcite.schema.Statistics;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractSchema;
 
@@ -23,6 +25,7 @@ import com.google.common.collect.ImmutableMap;
 
 import java.io.File;
 import java.io.FilenameFilter;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -40,7 +43,7 @@ public class CsvSchema extends AbstractSchema {
    * @param flavor     Whether to instantiate flavor tables that undergo
    *                   query optimization
    */
-  public CsvSchema(File directoryFile, CsvTable.Flavor flavor) {
+  public CsvSchema(File directoryFile, CsvTable.Flavor flavor, List<Statistic> tableStatistics) {
     super();
     this.directoryFile = directoryFile;
     this.flavor = flavor;
@@ -104,7 +107,7 @@ public class CsvSchema extends AbstractSchema {
     case SCANNABLE:
       return new CsvScannableTable(file, null);
     case FILTERABLE:
-      return new CsvFilterableTable(file, null);
+      return new CsvFilterableTable(file, null, Statistics.UNKNOWN);
     default:
       throw new AssertionError("Unknown flavor " + flavor);
     }
