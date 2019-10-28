@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.calcite.sql;
 
 import org.apache.calcite.sql.parser.SqlParserPos;
@@ -65,10 +64,12 @@ public class SqlDescribeSchema extends SqlCall {
   }
 
   @Override public List<SqlNode> getOperandList() {
-    return ImmutableNullableList.<SqlNode>of(schema);
+    return ImmutableNullableList.of(schema);
   }
 
-  public SqlIdentifier getSchema() { return schema; }
+  public SqlIdentifier getSchema() {
+    return schema;
+  }
 }
 
 // End SqlDescribeSchema.java

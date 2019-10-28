@@ -15,8 +15,10 @@
 #
 # Database of contributors to Apache Calcite.
 # Pages such as developer.md use this data.
+# List must be sorted by first name, last name.
 #
 - name: Alan Gates
+  emeritus: 2018/05/04
   apacheId: gates
   githubId: alanfgates
   org: Hortonworks
@@ -26,11 +28,61 @@
   githubId: amansinha100
   org: MapR
   role: PMC
+- name: Andrei Sereda
+  apacheId: sereda
+  githubId: asereda-gs
+  org:
+  role: Committer
 - name: Ashutosh Chauhan
   apacheId: hashutosh
   githubId: ashutoshc
   org: Hortonworks
   role: PMC
+- name: Chris Baynes
+  apacheId: cbaynes
+  githubId: chris-baynes
+  org: Contiamo
+  role: Committer
+- name: Christian Beikov
+  apacheId: cbeikov
+  githubId: beikov
+  org: Blazebit
+  role: Committer
+- name: Chunwei Lei
+  apacheId: chunwei
+  githubId: chunweilei
+  org: Alibaba
+  role: Committer
+- name: Danny Chan
+  apacheId: danny0405
+  githubId: danny0405
+  org: Alibaba
+  role: Committer
+- name: Edmon Begoli
+  apacheId: ebegoli
+  githubId: ebegoli
+  org: Oak Ridge National Laboratory
+  role: Committer
+- name: Francis Chuang
+  apacheId: francischuang
+  githubId: F21
+  org: Boostport
+  role: PMC Chair
+- name: Gian Merlino
+  apacheId: gian
+  githubId: gianm
+  org: Imply
+  role: Committer
+- name: Haisheng Yuan
+  apacheId: hyuan
+  githubId: hsyuan
+  org: Alibaba
+  role: Committer
+- name: Hongze Zhang
+  apacheId: hongze
+  githubId: zhztheplayer
+  org: Tencent
+  role: Committer
 - name: James R. Taylor
   apacheId: jamestaylor
   githubId: JamesRTaylor
@@ -41,6 +93,11 @@
   githubId: jacques-n
   org: Dremio
   role: PMC
+- name: Jess Balint
+  apacheId: jbalint
+  githubId: jbalint
+  org: Stardog
+  role: Committer
 - name: Jesús Camacho Rodríguez
   apacheId: jcamacho
   githubId: jcamachor
@@ -61,27 +118,94 @@
   githubId: joshelser
   org: Hortonworks
   role: PMC
+- name: Julian Feinauer
+  apacheId: jfeinauer
+  githubId: JulianFeinauer
+  org: Pragmatic Minds
+  role: Committer
 - name: Julian Hyde
   apacheId: jhyde
   githubId: julianhyde
-  org: Hortonworks
-  role: PMC Chair
+  org: Looker
+  role: PMC
   homepage: http://people.apache.org/~jhyde
+- name: Kevin Liew
+  apacheId: kliew
+  githubId: kliewkliew
+  org:
+  role: Committer
+- name: Kevin Risden
+  apacheId: krisden
+  githubId: risdenk
+  org:
+  role: PMC
+- name: Laurent Goujon
+  apacheId: laurent
+  githubId: laurentgo
+  org: Dremio
+  role: PMC
 - name: Maryann Xue
   apacheId: maryannxue
   githubId: maryannxue
   org: Intel
-  role: Committer
+  role: PMC
 - name: Michael Mior
   apacheId: mmior
   githubId: michaelmior
-  org: University of Waterloo
+  org: Rochester Institute of Technology
+  role: PMC
+  homepage: https://michael.mior.ca/
+- name: Milinda Pathirage
+  apacheId: milinda
+  githubId: milinda
+  org: Indiana University
   role: Committer
-  homepage: http://michael.mior.ca/
+  homepage: http://milinda.pathirage.org/
+- name: MinJi Kim
+  apacheId: minji
+  githubId: minji-kim
+  org: Oracle
+  role: Committer
+- name: Muhammad Gelbana
+  apacheId: mgelbana
+  githubId: MGelbana
+  org: Incorta
+  role: Committer
 - name: Nick Dimiduk
   apacheId: ndimiduk
   githubId: ndimiduk
+  org:
+  role: PMC
+  homepage: http://www.n10k.com
+- name: Nishant Bangarwa
+  apacheId: nishant
+  githubId: nishantmonu51
   org: Hortonworks
+  role: Committer
+- name: Ruben Quesada Lopez
+  apacheId: rubenql
+  githubId: rubenada
+  org: TIBCO
+  role: Committer
+- name: Sergey Nuyanzin
+  apacheId: snuyanzin
+  githubId: snuyanzin
+  org: EPAM
+  role: Committer
+- name: Shuyi Chen
+  apacheId: shuyichen
+  githubId: suez1224
+  org: Uber
+  role: Committer
+- name: Slim Bouguerra
+  apacheId: bslim
+  githubId: b-slim
+  org: Hortonworks
+  role: Committer
+- name: Stamatis Zampetakis
+  apacheId: zabetak
+  githubId: zabetak
+  org: TIBCO
   role: PMC
 - name: Steven Noels
   apacheId: stevenn
@@ -93,10 +217,35 @@
   githubId: tdunning
   org: MapR
   role: PMC
-  avatar: https://www.mapr.com/sites/default/files/otherpageimages/ted-circle-80.png
+  avatar: https://mapr.com/blog/author/ted-dunning/assets/tdunning-panama.jpg
 - name: Vladimir Sitnikov
   apacheId: vladimirsitnikov
   githubId: vlsi
   org: NetCracker
   role: PMC
+- name: Volodymyr Vysotskyi
+  apacheId: volodymyr
+  githubId: vvysotskyi
+  org:
+  role: PMC
+- name: Zhen Wang
+  apacheId: zhenw
+  githubId: zinking
+  org:
+  role: Committer
+- name: Zhiqiang He
+  apacheId: zhiqianghe
+  githubId: Zhiqiang-He
+  org: Huawei
+  role: Committer
+- name: Zhiwei Peng
+  apacheId: zhiwei
+  githubId: pengzhiwei2018
+  org: Ant Financial Group
+  role: Committer
+- name: Zoltan Haindrich
+  apacheId: kgyrtkirk
+  githubId: kgyrtkirk
+  org: Hortonworks
+  role: Committer
 # End contributors.yml

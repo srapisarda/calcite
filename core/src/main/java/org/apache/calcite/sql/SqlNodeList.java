@@ -172,7 +172,7 @@ public class SqlNodeList extends SqlNode implements Iterable<SqlNode> {
   }
 
   public SqlNode[] toArray() {
-    return list.toArray(new SqlNode[list.size()]);
+    return list.toArray(new SqlNode[0]);
   }
 
   public static boolean isEmptyList(final SqlNode node) {
@@ -182,6 +182,29 @@ public class SqlNodeList extends SqlNode implements Iterable<SqlNode> {
       }
     }
     return false;
+  }
+
+  public static SqlNodeList of(SqlNode node1) {
+    SqlNodeList list = new SqlNodeList(SqlParserPos.ZERO);
+    list.add(node1);
+    return list;
+  }
+
+  public static SqlNodeList of(SqlNode node1, SqlNode node2) {
+    SqlNodeList list = new SqlNodeList(SqlParserPos.ZERO);
+    list.add(node1);
+    list.add(node2);
+    return list;
+  }
+
+  public static SqlNodeList of(SqlNode node1, SqlNode node2, SqlNode... nodes) {
+    SqlNodeList list = new SqlNodeList(SqlParserPos.ZERO);
+    list.add(node1);
+    list.add(node2);
+    for (SqlNode node : nodes) {
+      list.add(node);
+    }
+    return list;
   }
 
   public void validateExpr(SqlValidator validator, SqlValidatorScope scope) {

@@ -19,6 +19,7 @@ package org.apache.calcite.sql.validate;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.schema.TableFunction;
+import org.apache.calcite.sql.SqlFunctionCategory;
 import org.apache.calcite.sql.SqlIdentifier;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.type.SqlOperandTypeChecker;
@@ -42,7 +43,7 @@ public class SqlUserDefinedTableFunction extends SqlUserDefinedFunction {
       List<RelDataType> paramTypes,
       TableFunction function) {
     super(opName, returnTypeInference, operandTypeInference, operandTypeChecker,
-        paramTypes, function);
+        paramTypes, function, SqlFunctionCategory.USER_DEFINED_TABLE_FUNCTION);
   }
 
   /**
@@ -66,8 +67,8 @@ public class SqlUserDefinedTableFunction extends SqlUserDefinedFunction {
   public RelDataType getRowType(RelDataTypeFactory typeFactory,
       List<SqlNode> operandList) {
     List<Object> arguments =
-      SqlUserDefinedTableMacro.convertArguments(typeFactory, operandList,
-        function, getNameAsId(), false);
+        SqlUserDefinedTableMacro.convertArguments(typeFactory, operandList,
+          function, getNameAsId(), false);
     return getFunction().getRowType(typeFactory, arguments);
   }
 
@@ -83,8 +84,8 @@ public class SqlUserDefinedTableFunction extends SqlUserDefinedFunction {
   public Type getElementType(RelDataTypeFactory typeFactory,
       List<SqlNode> operandList) {
     List<Object> arguments =
-      SqlUserDefinedTableMacro.convertArguments(typeFactory, operandList,
-        function, getNameAsId(), false);
+        SqlUserDefinedTableMacro.convertArguments(typeFactory, operandList,
+            function, getNameAsId(), false);
     return getFunction().getElementType(arguments);
   }
 }

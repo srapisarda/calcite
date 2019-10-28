@@ -21,23 +21,23 @@ package org.apache.calcite.runtime;
  * to regular expressions.
  */
 public class Like {
-  private static final String JAVA_REGEX_SPECIALS = "[]()|^-+*?{}$\\";
+  private static final String JAVA_REGEX_SPECIALS = "[]()|^-+*?{}$\\.";
   private static final String SQL_SIMILAR_SPECIALS = "[]()|^-+*_%?{}";
   private static final String [] REG_CHAR_CLASSES = {
-    "[:ALPHA:]", "\\p{Alpha}",
-    "[:alpha:]", "\\p{Alpha}",
-    "[:UPPER:]", "\\p{Upper}",
-    "[:upper:]", "\\p{Upper}",
-    "[:LOWER:]", "\\p{Lower}",
-    "[:lower:]", "\\p{Lower}",
-    "[:DIGIT:]", "\\d",
-    "[:digit:]", "\\d",
-    "[:SPACE:]", " ",
-    "[:space:]", " ",
-    "[:WHITESPACE:]", "\\s",
-    "[:whitespace:]", "\\s",
-    "[:ALNUM:]", "\\p{Alnum}",
-    "[:alnum:]", "\\p{Alnum}"
+      "[:ALPHA:]", "\\p{Alpha}",
+      "[:alpha:]", "\\p{Alpha}",
+      "[:UPPER:]", "\\p{Upper}",
+      "[:upper:]", "\\p{Upper}",
+      "[:LOWER:]", "\\p{Lower}",
+      "[:lower:]", "\\p{Lower}",
+      "[:DIGIT:]", "\\d",
+      "[:digit:]", "\\d",
+      "[:SPACE:]", " ",
+      "[:space:]", " ",
+      "[:WHITESPACE:]", "\\s",
+      "[:whitespace:]", "\\s",
+      "[:ALNUM:]", "\\p{Alnum}",
+      "[:alnum:]", "\\p{Alnum}"
   };
 
   private Like() {
@@ -92,8 +92,7 @@ public class Like {
       } else if (c == '_') {
         javaPattern.append('.');
       } else if (c == '%') {
-        javaPattern.append(".");
-        javaPattern.append('*');
+        javaPattern.append("(?s:.*)");
       } else {
         javaPattern.append(c);
       }
@@ -264,8 +263,7 @@ public class Like {
           javaPattern.append('.');
           break;
         case '%':
-          javaPattern.append('.');
-          javaPattern.append('*');
+          javaPattern.append("(?s:.*)");
           break;
         case '[':
           javaPattern.append('[');

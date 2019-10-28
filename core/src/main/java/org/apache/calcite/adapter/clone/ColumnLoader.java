@@ -26,7 +26,6 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rel.type.RelProtoDataType;
 
-import com.google.common.base.Function;
 import com.google.common.collect.Lists;
 
 import java.lang.reflect.Type;
@@ -50,33 +49,8 @@ class ColumnLoader<T> {
   static final int[] INT_B = {0x2, 0xC, 0xF0, 0xFF00, 0xFFFF0000};
   static final int[] INT_S = {1, 2, 4, 8, 16};
   static final long[] LONG_B = {
-    0x2, 0xC, 0xF0, 0xFF00, 0xFFFF0000, 0xFFFFFFFF00000000L};
+      0x2, 0xC, 0xF0, 0xFF00, 0xFFFF0000, 0xFFFFFFFF00000000L};
   static final int[] LONG_S = {1, 2, 4, 8, 16, 32};
-
-  private static final Function<Timestamp, Long> TIMESTAMP_TO_LONG =
-      new Function<Timestamp, Long>() {
-        public Long apply(Timestamp a0) {
-          return a0 == null ? null : a0.getTime();
-        }
-      };
-
-  private static final Function<Time, Integer> TIME_TO_INT =
-      new Function<Time, Integer>() {
-        public Integer apply(Time a0) {
-          return a0 == null
-              ? null
-              : (int) (a0.getTime() % DateTimeUtils.MILLIS_PER_DAY);
-        }
-      };
-
-  private static final Function<Date, Integer> DATE_TO_INT =
-      new Function<Date, Integer>() {
-        public Integer apply(Date a0) {
-          return a0 == null
-              ? null
-              : (int) (a0.getTime() / DateTimeUtils.MILLIS_PER_DAY);
-        }
-      };
 
   public final List<T> list = new ArrayList<>();
   public final List<ArrayTable.Column> representationValues = new ArrayList<>();
@@ -264,21 +238,26 @@ class ColumnLoader<T> {
       switch (rep) {
       case OBJECT:
       case JAVA_SQL_TIMESTAMP:
-        return Lists.transform(list, TIMESTAMP_TO_LONG);
+        return Lists.transform(list,
+            (Timestamp t) -> t == null ? null : t.getTime());
       }
       break;
     case TIME:
       switch (rep) {
       case OBJECT:
       case JAVA_SQL_TIME:
-        return Lists.transform(list, TIME_TO_INT);
+        return Lists.transform(list, (Time t) -> t == null
+            ? null
+            : (int) (t.getTime() % DateTimeUtils.MILLIS_PER_DAY));
       }
       break;
     case DATE:
       switch (rep) {
       case OBJECT:
       case JAVA_SQL_DATE:
-        return Lists.transform(list, DATE_TO_INT);
+        return Lists.transform(list, (Date d) -> d == null
+            ? null
+            : (int) (d.getTime() / DateTimeUtils.MILLIS_PER_DAY));
       }
       break;
     }
@@ -461,7 +440,7 @@ class ColumnLoader<T> {
     private final int source;
     private final Comparable key;
 
-    public Kev(int source, Comparable key) {
+    Kev(int source, Comparable key) {
       this.source = source;
       this.key = key;
     }

@@ -22,15 +22,15 @@ import org.apache.calcite.sql.type.JavaToSqlTypeConversionRules;
 import org.apache.calcite.sql.type.SqlTypeFamily;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql.type.SqlTypeUtil;
-import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.Util;
 
-import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Interner;
+import com.google.common.collect.Interners;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -41,6 +41,8 @@ import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import javax.annotation.Nonnull;
 
 /**
  * Abstract base for implementations of {@link RelDataTypeFactory}.
@@ -49,30 +51,29 @@ public abstract class RelDataTypeFactoryImpl implements RelDataTypeFactory {
   //~ Instance fields --------------------------------------------------------
 
   /**
-   * Global cache. Uses soft values to allow GC.
+   * Global cache for Key to RelDataType. Uses soft values to allow GC.
    */
-  private static final LoadingCache<Object, RelDataType> CACHE =
+  private static final LoadingCache<Key, RelDataType> KEY2TYPE_CACHE =
       CacheBuilder.newBuilder()
           .softValues()
-          .build(
-              new CacheLoader<Object, RelDataType>() {
-                @Override public RelDataType load(Object key) {
-                  if (key instanceof RelDataType) {
-                    return (RelDataType) key;
-                  }
-                  @SuppressWarnings("unchecked")
-                  final Pair<List<String>, List<RelDataType>> pair =
-                      (Pair<List<String>, List<RelDataType>>) key;
-                  final ImmutableList.Builder<RelDataTypeField> list =
-                      ImmutableList.builder();
-                  for (int i = 0; i < pair.left.size(); i++) {
-                    list.add(
-                        new RelDataTypeFieldImpl(
-                            pair.left.get(i), i, pair.right.get(i)));
-                  }
-                  return new RelRecordType(list.build());
-                }
-              });
+          .build(CacheLoader.from(RelDataTypeFactoryImpl::keyToType));
+
+  /**
+   * Global cache for RelDataType.
+   */
+  private static final Interner<RelDataType> DATATYPE_CACHE =
+      Interners.newWeakInterner();
+
+  private static RelDataType keyToType(@Nonnull Key key) {
+    final ImmutableList.Builder<RelDataTypeField> list =
+        ImmutableList.builder();
+    for (int i = 0; i < key.names.size(); i++) {
+      list.add(
+          new RelDataTypeFieldImpl(
+              key.names.get(i), i, key.types.get(i)));
+    }
+    return new RelRecordType(key.kind, list.build(), key.nullable);
+  }
 
   private static final Map<Class, RelDataTypeFamily> CLASS_FAMILIES =
       ImmutableMap.<Class, RelDataTypeFamily>builder()
@@ -103,7 +104,7 @@ public abstract class RelDataTypeFactoryImpl implements RelDataTypeFactory {
 
   /** Creates a type factory. */
   protected RelDataTypeFactoryImpl(RelDataTypeSystem typeSystem) {
-    this.typeSystem = Preconditions.checkNotNull(typeSystem);
+    this.typeSystem = Objects.requireNonNull(typeSystem);
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -132,18 +133,32 @@ public abstract class RelDataTypeFactoryImpl implements RelDataTypeFactory {
         new RelCrossType(flattenedTypes, getFieldList(flattenedTypes)));
   }
 
-  // implement RelDataTypeFactory
   public RelDataType createStructType(
       final List<RelDataType> typeList,
       final List<String> fieldNameList) {
-    assert typeList.size() == fieldNameList.size();
-    return canonize(fieldNameList, typeList);
+    return createStructType(StructKind.FULLY_QUALIFIED, typeList,
+        fieldNameList);
   }
 
-  // implement RelDataTypeFactory
+  public RelDataType createStructType(StructKind kind,
+      final List<RelDataType> typeList,
+      final List<String> fieldNameList) {
+    return createStructType(kind, typeList,
+        fieldNameList, false);
+  }
+
+  private RelDataType createStructType(StructKind kind,
+      final List<RelDataType> typeList,
+      final List<String> fieldNameList,
+      final boolean nullable) {
+    assert typeList.size() == fieldNameList.size();
+    return canonize(kind, fieldNameList, typeList, nullable);
+  }
+
+  @SuppressWarnings("deprecation")
   public RelDataType createStructType(
       final RelDataTypeFactory.FieldInfo fieldInfo) {
-    return canonize(
+    return canonize(StructKind.FULLY_QUALIFIED,
         new AbstractList<String>() {
           @Override public String get(int index) {
             return fieldInfo.getFieldName(index);
@@ -164,26 +179,34 @@ public abstract class RelDataTypeFactoryImpl implements RelDataTypeFactory {
         });
   }
 
-  // implement RelDataTypeFactory
   public final RelDataType createStructType(
       final List<? extends Map.Entry<String, RelDataType>> fieldList) {
-    return createStructType(
-        new FieldInfo() {
-          public int getFieldCount() {
-            return fieldList.size();
-          }
+    return createStructType(fieldList, false);
+  }
 
-          public String getFieldName(int index) {
+  private RelDataType createStructType(
+      final List<? extends Map.Entry<String, RelDataType>> fieldList, boolean nullable) {
+    return canonize(StructKind.FULLY_QUALIFIED,
+        new AbstractList<String>() {
+          @Override public String get(int index) {
             return fieldList.get(index).getKey();
           }
 
-          public RelDataType getFieldType(int index) {
+          @Override public int size() {
+            return fieldList.size();
+          }
+        },
+        new AbstractList<RelDataType>() {
+          @Override public RelDataType get(int index) {
             return fieldList.get(index).getValue();
           }
-        });
+
+          @Override public int size() {
+            return fieldList.size();
+          }
+        }, nullable);
   }
 
-  // implement RelDataTypeFactory
   public RelDataType leastRestrictive(List<RelDataType> types) {
     assert types != null;
     assert types.size() >= 1;
@@ -200,6 +223,8 @@ public abstract class RelDataTypeFactoryImpl implements RelDataTypeFactory {
     final int fieldCount = type0.getFieldCount();
 
     // precheck that all types are structs with same number of fields
+    // and register desired nullability for the result
+    boolean isNullable = false;
     for (RelDataType type : types) {
       if (!type.isStruct()) {
         return null;
@@ -207,10 +232,11 @@ public abstract class RelDataTypeFactoryImpl implements RelDataTypeFactory {
       if (type.getFieldList().size() != fieldCount) {
         return null;
       }
+      isNullable |= type.isNullable();
     }
 
     // recursively compute column-wise least restrictive
-    final FieldInfoBuilder builder = builder();
+    final Builder builder = builder();
     for (int j = 0; j < fieldCount; ++j) {
       // REVIEW jvs 22-Jan-2004:  Always use the field name from the
       // first type?
@@ -228,7 +254,7 @@ public abstract class RelDataTypeFactoryImpl implements RelDataTypeFactory {
                 }
               }));
     }
-    return builder.build();
+    return createTypeWithNullability(builder.build(), isNullable);
   }
 
   // copy a non-record type, setting nullability
@@ -262,23 +288,11 @@ public abstract class RelDataTypeFactoryImpl implements RelDataTypeFactory {
       final RelRecordType type,
       final boolean ignoreNullable,
       final boolean nullable) {
-    // REVIEW: angel 18-Aug-2005 dtbug336
-    // Shouldn't null refer to the nullability of the record type
-    // not the individual field types?
     // For flattening and outer joins, it is desirable to change
     // the nullability of the individual fields.
-
-    return createStructType(
-        new FieldInfo() {
-          public int getFieldCount() {
-            return type.getFieldList().size();
-          }
-
-          public String getFieldName(int index) {
-            return type.getFieldList().get(index).getName();
-          }
-
-          public RelDataType getFieldType(int index) {
+    return createStructType(type.getStructKind(),
+        new AbstractList<RelDataType>() {
+          @Override public RelDataType get(int index) {
             RelDataType fieldType =
                 type.getFieldList().get(index).getType();
             if (ignoreNullable) {
@@ -287,25 +301,24 @@ public abstract class RelDataTypeFactoryImpl implements RelDataTypeFactory {
               return createTypeWithNullability(fieldType, nullable);
             }
           }
-        });
+
+          @Override public int size() {
+            return type.getFieldCount();
+          }
+        },
+        type.getFieldNames(), nullable);
   }
 
   // implement RelDataTypeFactory
   public RelDataType copyType(RelDataType type) {
-    if (type instanceof RelRecordType) {
-      return copyRecordType((RelRecordType) type, true, false);
-    } else {
-      return createTypeWithNullability(
-          type,
-          type.isNullable());
-    }
+    return createTypeWithNullability(type, type.isNullable());
   }
 
   // implement RelDataTypeFactory
   public RelDataType createTypeWithNullability(
       final RelDataType type,
       final boolean nullable) {
-    Preconditions.checkNotNull(type);
+    Objects.requireNonNull(type);
     RelDataType newType;
     if (type.isNullable() == nullable) {
       newType = type;
@@ -313,15 +326,16 @@ public abstract class RelDataTypeFactoryImpl implements RelDataTypeFactory {
       // REVIEW: angel 18-Aug-2005 dtbug 336 workaround
       // Changed to ignore nullable parameter if nullable is false since
       // copyRecordType implementation is doubtful
-      if (nullable) {
-        // Do a deep copy, setting all fields of the record type
-        // to be nullable regardless of initial nullability
-        newType = copyRecordType((RelRecordType) type, false, true);
-      } else {
-        // Keep same type as before, ignore nullable parameter
-        // RelRecordType currently always returns a nullability of false
-        newType = copyRecordType((RelRecordType) type, true, false);
-      }
+      // - If nullable -> Do a deep copy, setting all fields of the record type
+      // to be nullable regardless of initial nullability.
+      // - If not nullable -> Do a deep copy, setting not nullable at top RelRecordType
+      // level only, keeping its fields' nullability as before.
+      // According to the SQL standard, nullability for struct types can be defined only for
+      // columns, which translates to top level structs. Nested struct attributes are always
+      // nullable, so in principle we could always set the nested attributes to be nullable.
+      // However, this might create regressions so we will not do it and we will keep previous
+      // behavior.
+      newType = copyRecordType((RelRecordType) type, !nullable,  nullable);
     } else {
       newType = copySimpleType(type, nullable);
     }
@@ -335,7 +349,7 @@ public abstract class RelDataTypeFactoryImpl implements RelDataTypeFactory {
    * @throws NullPointerException if type is null
    */
   protected RelDataType canonize(final RelDataType type) {
-    return CACHE.getUnchecked(type);
+    return DATATYPE_CACHE.intern(type);
   }
 
   /**
@@ -346,16 +360,24 @@ public abstract class RelDataTypeFactoryImpl implements RelDataTypeFactory {
    * key is more expensive, because it must be immutable and not hold
    * references into other data structures.</p>
    */
-  protected RelDataType canonize(
+  protected RelDataType canonize(final StructKind kind,
       final List<String> names,
-      final List<RelDataType> types) {
-    final RelDataType type = CACHE.getIfPresent(Pair.of(names, types));
+      final List<RelDataType> types,
+      final boolean nullable) {
+    final RelDataType type = KEY2TYPE_CACHE.getIfPresent(
+        new Key(kind, names, types, nullable));
     if (type != null) {
       return type;
     }
     final ImmutableList<String> names2 = ImmutableList.copyOf(names);
     final ImmutableList<RelDataType> types2 = ImmutableList.copyOf(types);
-    return CACHE.getUnchecked(Pair.of(names2, types2));
+    return KEY2TYPE_CACHE.getUnchecked(new Key(kind, names2, types2, nullable));
+  }
+
+  protected RelDataType canonize(final StructKind kind,
+      final List<String> names,
+      final List<RelDataType> types) {
+    return canonize(kind, names, types, false);
   }
 
   /**
@@ -434,131 +456,83 @@ public abstract class RelDataTypeFactoryImpl implements RelDataTypeFactory {
   }
 
   /**
-   * {@inheritDoc}
-   *
-   * <p>Implement RelDataTypeFactory with SQL 2003 compliant behavior. Let p1,
-   * s1 be the precision and scale of the first operand Let p2, s2 be the
-   * precision and scale of the second operand Let p, s be the precision and
-   * scale of the result, Then the result type is a decimal with:
-   *
-   * <ul>
-   * <li>p = p1 + p2</li>
-   * <li>s = s1 + s2</li>
-   * </ul>
-   *
-   * p and s are capped at their maximum values
-   *
-   * @sql.2003 Part 2 Section 6.26
+   * Delegates to
+   * {@link RelDataTypeSystem#deriveDecimalMultiplyType(RelDataTypeFactory, RelDataType, RelDataType)}
+   * to get the return type for the operation.
    */
+  @Deprecated
   public RelDataType createDecimalProduct(
       RelDataType type1,
       RelDataType type2) {
-    if (SqlTypeUtil.isExactNumeric(type1)
-        && SqlTypeUtil.isExactNumeric(type2)) {
-      if (SqlTypeUtil.isDecimal(type1)
-          || SqlTypeUtil.isDecimal(type2)) {
-        int p1 = type1.getPrecision();
-        int p2 = type2.getPrecision();
-        int s1 = type1.getScale();
-        int s2 = type2.getScale();
-
-        int scale = s1 + s2;
-        scale = Math.min(scale, typeSystem.getMaxNumericScale());
-        int precision = p1 + p2;
-        precision =
-            Math.min(
-                precision,
-                typeSystem.getMaxNumericPrecision());
-
-        RelDataType ret;
-        ret =
-            createSqlType(
-                SqlTypeName.DECIMAL,
-                precision,
-                scale);
-
-        return ret;
-      }
-    }
-
-    return null;
-  }
-
-  // implement RelDataTypeFactory
-  public boolean useDoubleMultiplication(
-      RelDataType type1,
-      RelDataType type2) {
-    assert createDecimalProduct(type1, type2) != null;
-    return false;
+    return typeSystem.deriveDecimalMultiplyType(this, type1, type2);
   }
 
   /**
-   * Rules:
-   *
-   * <ul>
-   * <li>Let p1, s1 be the precision and scale of the first operand
-   * <li>Let p2, s2 be the precision and scale of the second operand
-   * <li>Let p, s be the precision and scale of the result
-   * <li>Let d be the number of whole digits in the result
-   * <li>Then the result type is a decimal with:
-   *   <ul>
-   *   <li>d = p1 - s1 + s2</li>
-   *   <li>s &lt; max(6, s1 + p2 + 1)</li>
-   *   <li>p = d + s</li>
-   *   </ul>
-   * </li>
-   * <li>p and s are capped at their maximum values</li>
-   * </ul>
-   *
-   * @sql.2003 Part 2 Section 6.26
+   * Delegates to
+   * {@link RelDataTypeSystem#shouldUseDoubleMultiplication(RelDataTypeFactory, RelDataType, RelDataType)}
+   * to get if double should be used for multiplication.
    */
+  @Deprecated
+  public boolean useDoubleMultiplication(
+      RelDataType type1,
+      RelDataType type2) {
+    return typeSystem.shouldUseDoubleMultiplication(this, type1, type2);
+  }
+
+  /**
+   * Delegates to
+   * {@link RelDataTypeSystem#deriveDecimalDivideType(RelDataTypeFactory, RelDataType, RelDataType)}
+   * to get the return type for the operation.
+   */
+  @Deprecated
   public RelDataType createDecimalQuotient(
       RelDataType type1,
       RelDataType type2) {
-    if (SqlTypeUtil.isExactNumeric(type1)
-        && SqlTypeUtil.isExactNumeric(type2)) {
-      if (SqlTypeUtil.isDecimal(type1)
-          || SqlTypeUtil.isDecimal(type2)) {
-        int p1 = type1.getPrecision();
-        int p2 = type2.getPrecision();
-        int s1 = type1.getScale();
-        int s2 = type2.getScale();
+    return typeSystem.deriveDecimalDivideType(this, type1, type2);
+  }
 
-        final int maxNumericPrecision = typeSystem.getMaxNumericPrecision();
-        int dout =
-            Math.min(
-                p1 - s1 + s2,
-                maxNumericPrecision);
+  public RelDataType decimalOf(RelDataType type) {
+    // create decimal type and sync nullability
+    return createTypeWithNullability(decimalOf2(type), type.isNullable());
+  }
 
-        int scale = Math.max(6, s1 + p2 + 1);
-        scale =
-            Math.min(
-                scale,
-                maxNumericPrecision - dout);
-        scale = Math.min(scale, getTypeSystem().getMaxNumericScale());
-
-        int precision = dout + scale;
-        assert precision <= maxNumericPrecision;
-        assert precision > 0;
-
-        RelDataType ret;
-        ret =
-            createSqlType(
-                SqlTypeName.DECIMAL,
-                precision,
-                scale);
-
-        return ret;
-      }
+  /** Create decimal type equivalent with the given {@code type} while sans nullability. */
+  private RelDataType decimalOf2(RelDataType type) {
+    assert SqlTypeUtil.isNumeric(type) || SqlTypeUtil.isNull(type);
+    SqlTypeName typeName = type.getSqlTypeName();
+    assert typeName != null;
+    switch (typeName) {
+    case DECIMAL:
+      return type;
+    case TINYINT:
+      return createSqlType(SqlTypeName.DECIMAL, 3, 0);
+    case SMALLINT:
+      return createSqlType(SqlTypeName.DECIMAL, 5, 0);
+    case INTEGER:
+      return createSqlType(SqlTypeName.DECIMAL, 10, 0);
+    case BIGINT:
+      // the default max precision is 19, so this is actually DECIMAL(19, 0)
+      // but derived system can override the max precision/scale.
+      return createSqlType(SqlTypeName.DECIMAL, 38, 0);
+    case REAL:
+      return createSqlType(SqlTypeName.DECIMAL, 14, 7);
+    case FLOAT:
+      return createSqlType(SqlTypeName.DECIMAL, 14, 7);
+    case DOUBLE:
+      // the default max precision is 19, so this is actually DECIMAL(19, 15)
+      // but derived system can override the max precision/scale.
+      return createSqlType(SqlTypeName.DECIMAL, 30, 15);
+    default:
+      // default precision and scale.
+      return createSqlType(SqlTypeName.DECIMAL);
     }
-
-    return null;
   }
 
   public Charset getDefaultCharset() {
     return Util.getDefaultCharset();
   }
 
+  @SuppressWarnings("deprecation")
   public FieldInfoBuilder builder() {
     return new FieldInfoBuilder(this);
   }
@@ -644,6 +618,34 @@ public abstract class RelDataTypeFactoryImpl implements RelDataTypeFactory {
         return SqlTypeName.OTHER;
       }
       return typeName;
+    }
+  }
+
+  /** Key to the data type cache. */
+  private static class Key {
+    private final StructKind kind;
+    private final List<String> names;
+    private final List<RelDataType> types;
+    private final boolean nullable;
+
+    Key(StructKind kind, List<String> names, List<RelDataType> types, boolean nullable) {
+      this.kind = kind;
+      this.names = names;
+      this.types = types;
+      this.nullable = nullable;
+    }
+
+    @Override public int hashCode() {
+      return Objects.hash(kind, names, types, nullable);
+    }
+
+    @Override public boolean equals(Object obj) {
+      return obj == this
+          || obj instanceof Key
+          && kind == ((Key) obj).kind
+          && names.equals(((Key) obj).names)
+          && types.equals(((Key) obj).types)
+          && nullable == ((Key) obj).nullable;
     }
   }
 }

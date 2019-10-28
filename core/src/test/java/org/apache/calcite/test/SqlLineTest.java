@@ -18,15 +18,16 @@ package org.apache.calcite.test;
 
 import org.apache.calcite.util.Bug;
 import org.apache.calcite.util.Pair;
+import org.apache.calcite.util.Util;
 
 import org.hamcrest.Matcher;
-
 import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -52,7 +53,8 @@ public class SqlLineTest {
       throws Throwable {
     SqlLine sqlline = new SqlLine();
     ByteArrayOutputStream os = new ByteArrayOutputStream();
-    PrintStream sqllineOutputStream = new PrintStream(os);
+    PrintStream sqllineOutputStream =
+        new PrintStream(os, false, StandardCharsets.UTF_8.name());
     sqlline.setOutputStream(sqllineOutputStream);
     sqlline.setErrorStream(sqllineOutputStream);
     SqlLine.Status status = SqlLine.Status.OK;
@@ -73,7 +75,7 @@ public class SqlLineTest {
     } else {
       args.add("--run=" + scriptFile.getAbsolutePath());
     }
-    return run(args.toArray(new String[args.size()]));
+    return run(args.toArray(new String[0]));
   }
 
   /**
@@ -92,9 +94,9 @@ public class SqlLineTest {
     // Put the script content in a temp file
     File scriptFile = File.createTempFile("foo", "temp");
     scriptFile.deleteOnExit();
-    PrintStream os = new PrintStream(new FileOutputStream(scriptFile));
-    os.print(scriptText);
-    os.close();
+    try (PrintWriter w = Util.printWriter(scriptFile)) {
+      w.print(scriptText);
+    }
 
     Pair<SqlLine.Status, String> pair = runScript(scriptFile, flag);
 

@@ -28,9 +28,7 @@ import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
-import org.apache.calcite.util.Util;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -38,7 +36,7 @@ import java.util.List;
  * relational expression in Elasticsearch.
  */
 public class ElasticsearchSort extends Sort implements ElasticsearchRel {
-  public ElasticsearchSort(RelOptCluster cluster, RelTraitSet traitSet, RelNode child,
+  ElasticsearchSort(RelOptCluster cluster, RelTraitSet traitSet, RelNode child,
       RelCollation collation, RexNode offset, RexNode fetch) {
     super(cluster, traitSet, child, collation, offset, fetch);
     assert getConvention() == ElasticsearchRel.CONVENTION;
@@ -56,38 +54,23 @@ public class ElasticsearchSort extends Sort implements ElasticsearchRel {
 
   @Override public void implement(Implementor implementor) {
     implementor.visitChild(0, getInput());
-    if (!collation.getFieldCollations().isEmpty()) {
-      final List<String> keys = new ArrayList<>();
-      final List<RelDataTypeField> fields = getRowType().getFieldList();
+    final List<RelDataTypeField> fields = getRowType().getFieldList();
 
-      for (RelFieldCollation fieldCollation: collation.getFieldCollations()) {
-        final String name = fields.get(fieldCollation.getFieldIndex()).getName();
-        keys.add(ElasticsearchRules.quote(name) + ": " + direction(fieldCollation));
-      }
-
-      implementor.add("\"sort\": [ " + Util.toString(keys, "{", "}, {", "}") + "]");
+    for (RelFieldCollation fieldCollation : collation.getFieldCollations()) {
+      final String name = fields.get(fieldCollation.getFieldIndex()).getName();
+      final String rawName = implementor.expressionItemMap.getOrDefault(name, name);
+      implementor.addSort(rawName, fieldCollation.getDirection());
     }
 
     if (offset != null) {
-      implementor.add("\"from\": " + ((RexLiteral) offset).getValue());
+      implementor.offset(((RexLiteral) offset).getValueAs(Long.class));
     }
 
     if (fetch != null) {
-      implementor.add("\"size\": " + ((RexLiteral) fetch).getValue());
+      implementor.fetch(((RexLiteral) fetch).getValueAs(Long.class));
     }
   }
 
-  private String direction(RelFieldCollation fieldCollation) {
-    switch (fieldCollation.getDirection()) {
-    case DESCENDING:
-    case STRICTLY_DESCENDING:
-      return "\"desc\"";
-    case ASCENDING:
-    case STRICTLY_ASCENDING:
-    default:
-      return "\"asc\"";
-    }
-  }
 }
 
 // End ElasticsearchSort.java

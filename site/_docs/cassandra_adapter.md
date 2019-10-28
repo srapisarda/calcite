@@ -33,7 +33,7 @@ of the Cassandra adapter. Note that while models can contain
 definitions of
 [materializations]({{ site.baseurl }}/docs/model.html#materialization),
 the adapter will attempt to automatically populate any materialized views
-[defined in Cassandra](http://www.datastax.com/dev/blog/new-in-cassandra-3-0-materialized-views).
+[defined in Cassandra](https://www.datastax.com/dev/blog/new-in-cassandra-3-0-materialized-views).
 
 A basic example of a model file is given below:
 
@@ -55,6 +55,8 @@ A basic example of a model file is given below:
 }
 {% endhighlight %}
 
+Note that you can also specify `username` and `password` keys along with
+the `host` and `keyspace` if your server requires authentication.
 Assuming this file is stored as `model.json`, you can connect to
 Cassandra via [`sqlline`](https://github.com/julianhyde/sqlline) as
 follows:

@@ -18,14 +18,13 @@ package org.apache.calcite.sql.type;
 
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypePrecedenceList;
+import org.apache.calcite.util.Glossary;
 import org.apache.calcite.util.ImmutableNullableList;
 import org.apache.calcite.util.Util;
 
-import com.google.common.base.Predicates;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -38,36 +37,24 @@ public class SqlTypeExplicitPrecedenceList
     implements RelDataTypePrecedenceList {
   //~ Static fields/initializers ---------------------------------------------
 
-  // NOTE jvs 25-Jan-2005:  the null entries delimit equivalence
-  // classes
   private static final List<SqlTypeName> NUMERIC_TYPES =
       ImmutableNullableList.of(
           SqlTypeName.TINYINT,
-          null,
           SqlTypeName.SMALLINT,
-          null,
           SqlTypeName.INTEGER,
-          null,
           SqlTypeName.BIGINT,
-          null,
           SqlTypeName.DECIMAL,
-          null,
           SqlTypeName.REAL,
-          null,
           SqlTypeName.FLOAT,
           SqlTypeName.DOUBLE);
-
-  private static final List<SqlTypeName> COMPACT_NUMERIC_TYPES =
-      ImmutableList.copyOf(
-          Iterables.filter(NUMERIC_TYPES, Predicates.notNull()));
 
   /**
    * Map from SqlTypeName to corresponding precedence list.
    *
-   * @sql.2003 Part 2 Section 9.5
+   * @see Glossary#SQL2003 SQL:2003 Part 2 Section 9.5
    */
   private static final Map<SqlTypeName, SqlTypeExplicitPrecedenceList>
-  TYPE_NAME_TO_PRECEDENCE_LIST =
+      TYPE_NAME_TO_PRECEDENCE_LIST =
       ImmutableMap.<SqlTypeName, SqlTypeExplicitPrecedenceList>builder()
           .put(SqlTypeName.BOOLEAN, list(SqlTypeName.BOOLEAN))
           .put(SqlTypeName.TINYINT, numeric(SqlTypeName.TINYINT))
@@ -76,8 +63,8 @@ public class SqlTypeExplicitPrecedenceList
           .put(SqlTypeName.BIGINT, numeric(SqlTypeName.BIGINT))
           .put(SqlTypeName.DECIMAL, numeric(SqlTypeName.DECIMAL))
           .put(SqlTypeName.REAL, numeric(SqlTypeName.REAL))
-          .put(SqlTypeName.FLOAT, numeric(SqlTypeName.FLOAT))
-          .put(SqlTypeName.DOUBLE, numeric(SqlTypeName.DOUBLE))
+          .put(SqlTypeName.FLOAT, list(SqlTypeName.FLOAT, SqlTypeName.REAL, SqlTypeName.DOUBLE))
+          .put(SqlTypeName.DOUBLE, list(SqlTypeName.DOUBLE, SqlTypeName.DECIMAL))
           .put(SqlTypeName.CHAR, list(SqlTypeName.CHAR, SqlTypeName.VARCHAR))
           .put(SqlTypeName.VARCHAR, list(SqlTypeName.VARCHAR))
           .put(SqlTypeName.BINARY,
@@ -85,11 +72,34 @@ public class SqlTypeExplicitPrecedenceList
           .put(SqlTypeName.VARBINARY, list(SqlTypeName.VARBINARY))
           .put(SqlTypeName.DATE, list(SqlTypeName.DATE))
           .put(SqlTypeName.TIME, list(SqlTypeName.TIME))
-          .put(SqlTypeName.TIMESTAMP, list(SqlTypeName.TIMESTAMP))
+          .put(SqlTypeName.TIMESTAMP,
+              list(SqlTypeName.TIMESTAMP, SqlTypeName.DATE, SqlTypeName.TIME))
+          .put(SqlTypeName.INTERVAL_YEAR,
+              list(SqlTypeName.YEAR_INTERVAL_TYPES))
           .put(SqlTypeName.INTERVAL_YEAR_MONTH,
-              list(SqlTypeName.INTERVAL_YEAR_MONTH))
-          .put(SqlTypeName.INTERVAL_DAY_TIME,
-              list(SqlTypeName.INTERVAL_DAY_TIME))
+              list(SqlTypeName.YEAR_INTERVAL_TYPES))
+          .put(SqlTypeName.INTERVAL_MONTH,
+              list(SqlTypeName.YEAR_INTERVAL_TYPES))
+          .put(SqlTypeName.INTERVAL_DAY,
+              list(SqlTypeName.DAY_INTERVAL_TYPES))
+          .put(SqlTypeName.INTERVAL_DAY_HOUR,
+              list(SqlTypeName.DAY_INTERVAL_TYPES))
+          .put(SqlTypeName.INTERVAL_DAY_MINUTE,
+              list(SqlTypeName.DAY_INTERVAL_TYPES))
+          .put(SqlTypeName.INTERVAL_DAY_SECOND,
+              list(SqlTypeName.DAY_INTERVAL_TYPES))
+          .put(SqlTypeName.INTERVAL_HOUR,
+              list(SqlTypeName.DAY_INTERVAL_TYPES))
+          .put(SqlTypeName.INTERVAL_HOUR_MINUTE,
+              list(SqlTypeName.DAY_INTERVAL_TYPES))
+          .put(SqlTypeName.INTERVAL_HOUR_SECOND,
+              list(SqlTypeName.DAY_INTERVAL_TYPES))
+          .put(SqlTypeName.INTERVAL_MINUTE,
+              list(SqlTypeName.DAY_INTERVAL_TYPES))
+          .put(SqlTypeName.INTERVAL_MINUTE_SECOND,
+              list(SqlTypeName.DAY_INTERVAL_TYPES))
+          .put(SqlTypeName.INTERVAL_SECOND,
+              list(SqlTypeName.DAY_INTERVAL_TYPES))
           .build();
 
   //~ Instance fields --------------------------------------------------------
@@ -98,20 +108,24 @@ public class SqlTypeExplicitPrecedenceList
 
   //~ Constructors -----------------------------------------------------------
 
-  public SqlTypeExplicitPrecedenceList(List<SqlTypeName> typeNames) {
+  public SqlTypeExplicitPrecedenceList(Iterable<SqlTypeName> typeNames) {
     this.typeNames = ImmutableNullableList.copyOf(typeNames);
   }
 
   //~ Methods ----------------------------------------------------------------
 
-  private static SqlTypeExplicitPrecedenceList list(SqlTypeName... array) {
-    return new SqlTypeExplicitPrecedenceList(ImmutableList.copyOf(array));
+  private static SqlTypeExplicitPrecedenceList list(SqlTypeName... typeNames) {
+    return list(Arrays.asList(typeNames));
+  }
+
+  private static SqlTypeExplicitPrecedenceList list(Iterable<SqlTypeName> typeNames) {
+    return new SqlTypeExplicitPrecedenceList(typeNames);
   }
 
   private static SqlTypeExplicitPrecedenceList numeric(SqlTypeName typeName) {
-    int i = getListPosition(typeName, COMPACT_NUMERIC_TYPES);
+    int i = getListPosition(typeName, NUMERIC_TYPES);
     return new SqlTypeExplicitPrecedenceList(
-        Util.skip(COMPACT_NUMERIC_TYPES, i));
+        Util.skip(NUMERIC_TYPES, i));
   }
 
   // implement RelDataTypePrecedenceList
@@ -122,8 +136,8 @@ public class SqlTypeExplicitPrecedenceList
 
   // implement RelDataTypePrecedenceList
   public int compareTypePrecedence(RelDataType type1, RelDataType type2) {
-    assert containsType(type1);
-    assert containsType(type2);
+    assert containsType(type1) : type1;
+    assert containsType(type2) : type2;
 
     int p1 =
         getListPosition(
@@ -139,13 +153,6 @@ public class SqlTypeExplicitPrecedenceList
   private static int getListPosition(SqlTypeName type, List<SqlTypeName> list) {
     int i = list.indexOf(type);
     assert i != -1;
-
-    // adjust for precedence equivalence classes
-    for (int j = i - 1; j >= 0; --j) {
-      if (list.get(j) == null) {
-        return j;
-      }
-    }
     return i;
   }
 

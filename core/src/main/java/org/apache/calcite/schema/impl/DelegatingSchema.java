@@ -17,9 +17,11 @@
 package org.apache.calcite.schema.impl;
 
 import org.apache.calcite.linq4j.tree.Expression;
+import org.apache.calcite.rel.type.RelProtoDataType;
 import org.apache.calcite.schema.Function;
 import org.apache.calcite.schema.Schema;
 import org.apache.calcite.schema.SchemaPlus;
+import org.apache.calcite.schema.SchemaVersion;
 import org.apache.calcite.schema.Table;
 
 import java.util.Collection;
@@ -49,8 +51,8 @@ public class DelegatingSchema implements Schema {
     return schema.isMutable();
   }
 
-  public boolean contentsHaveChangedSince(long lastCheck, long now) {
-    return schema.contentsHaveChangedSince(lastCheck, now);
+  public Schema snapshot(SchemaVersion version) {
+    return schema.snapshot(version);
   }
 
   public Expression getExpression(SchemaPlus parentSchema, String name) {
@@ -63,6 +65,14 @@ public class DelegatingSchema implements Schema {
 
   public Set<String> getTableNames() {
     return schema.getTableNames();
+  }
+
+  public RelProtoDataType getType(String name) {
+    return schema.getType(name);
+  }
+
+  public Set<String> getTypeNames() {
+    return schema.getTypeNames();
   }
 
   public Collection<Function> getFunctions(String name) {

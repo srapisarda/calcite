@@ -29,6 +29,7 @@ import org.apache.calcite.util.Litmus;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import javax.annotation.Nonnull;
 
 /**
  * A <code>SqlCall</code> is a call to an {@link SqlOperator operator}.
@@ -68,9 +69,9 @@ public abstract class SqlCall extends SqlNode {
     return getOperator().getKind();
   }
 
-  public abstract SqlOperator getOperator();
+  public abstract @Nonnull SqlOperator getOperator();
 
-  public abstract List<SqlNode> getOperandList();
+  public abstract @Nonnull List<SqlNode> getOperandList();
 
   @SuppressWarnings("unchecked")
   public <S extends SqlNode> S operand(int i) {
@@ -81,8 +82,10 @@ public abstract class SqlCall extends SqlNode {
     return getOperandList().size();
   }
 
-  public SqlNode clone(SqlParserPos pos) {
-    return getOperator().createCall(pos, getOperandList());
+  @Override public SqlNode clone(SqlParserPos pos) {
+    final List<SqlNode> operandList = getOperandList();
+    return getOperator().createCall(getFunctionQuantifier(), pos,
+        operandList.toArray(new SqlNode[0]));
   }
 
   public void unparse(
@@ -90,14 +93,15 @@ public abstract class SqlCall extends SqlNode {
       int leftPrec,
       int rightPrec) {
     final SqlOperator operator = getOperator();
+    final SqlDialect dialect = writer.getDialect();
     if (leftPrec > operator.getLeftPrec()
         || (operator.getRightPrec() <= rightPrec && (rightPrec != 0))
         || writer.isAlwaysUseParentheses() && isA(SqlKind.EXPRESSION)) {
       final SqlWriter.Frame frame = writer.startList("(", ")");
-      operator.unparse(writer, this, 0, 0);
+      dialect.unparseCall(writer, this, 0, 0);
       writer.endList(frame);
     } else {
-      operator.unparse(writer, this, leftPrec, rightPrec);
+      dialect.unparseCall(writer, this, leftPrec, rightPrec);
     }
   }
 
@@ -145,8 +149,9 @@ public abstract class SqlCall extends SqlNode {
     SqlCall that = (SqlCall) node;
 
     // Compare operators by name, not identity, because they may not
-    // have been resolved yet.
-    if (!this.getOperator().getName().equals(that.getOperator().getName())) {
+    // have been resolved yet. Use case insensitive comparison since
+    // this may be a case insensitive system.
+    if (!this.getOperator().getName().equalsIgnoreCase(that.getOperator().getName())) {
       return litmus.fail("{} != {}", this, node);
     }
     return equalDeep(this.getOperandList(), that.getOperandList(), litmus);
@@ -183,7 +188,9 @@ public abstract class SqlCall extends SqlNode {
    * @return boolean true if function call to COUNT(*)
    */
   public boolean isCountStar() {
-    if (getOperator().isName("COUNT") && operandCount() == 1) {
+    SqlOperator sqlOperator = getOperator();
+    if (sqlOperator.getName().equals("COUNT")
+        && operandCount() == 1) {
       final SqlNode parm = operand(0);
       if (parm instanceof SqlIdentifier) {
         SqlIdentifier id = (SqlIdentifier) parm;

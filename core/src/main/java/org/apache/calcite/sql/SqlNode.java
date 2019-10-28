@@ -16,6 +16,7 @@
  */
 package org.apache.calcite.sql;
 
+import org.apache.calcite.sql.dialect.AnsiSqlDialect;
 import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.pretty.SqlPrettyWriter;
 import org.apache.calcite.sql.util.SqlString;
@@ -29,7 +30,9 @@ import org.apache.calcite.util.Util;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
 
 /**
  * A <code>SqlNode</code> is a SQL parse tree.
@@ -55,29 +58,29 @@ public abstract class SqlNode implements Cloneable {
    * @param pos Parser position, must not be null.
    */
   SqlNode(SqlParserPos pos) {
-    Util.pre(pos != null, "pos != null");
-    this.pos = pos;
+    this.pos = Objects.requireNonNull(pos);
   }
 
   //~ Methods ----------------------------------------------------------------
 
+  /** @deprecated Please use {@link #clone(SqlNode)}; this method brings
+   * along too much baggage from early versions of Java */
+  @Deprecated
+  @SuppressWarnings("MethodDoesntCallSuperMethod")
   public Object clone() {
     return clone(getParserPosition());
+  }
+
+  /** Creates a copy of a SqlNode. */
+  public static <E extends SqlNode> E clone(E e) {
+    //noinspection unchecked
+    return (E) e.clone(e.pos);
   }
 
   /**
    * Clones a SqlNode with a different position.
    */
-  public SqlNode clone(SqlParserPos pos) {
-    // REVIEW jvs 26-July-2006:  shouldn't pos be used here?  Or are
-    // subclasses always supposed to override, in which case this
-    // method should probably be abstract?
-    try {
-      return (SqlNode) super.clone();
-    } catch (CloneNotSupportedException e) {
-      throw Util.newInternal(e, "error while cloning " + this);
-    }
-  }
+  public abstract SqlNode clone(SqlParserPos pos);
 
   /**
    * Returns the type of node this is, or
@@ -86,7 +89,7 @@ public abstract class SqlNode implements Cloneable {
    * @return a {@link SqlKind} value, never null
    * @see #isA
    */
-  public SqlKind getKind() {
+  public @Nonnull SqlKind getKind() {
     return SqlKind.OTHER;
   }
 
@@ -112,7 +115,7 @@ public abstract class SqlNode implements Cloneable {
     for (int i = 0; i < clones.length; i++) {
       SqlNode node = clones[i];
       if (node != null) {
-        clones[i] = (SqlNode) node.clone();
+        clones[i] = SqlNode.clone(node);
       }
     }
     return clones;
@@ -126,29 +129,29 @@ public abstract class SqlNode implements Cloneable {
    * Returns the SQL text of the tree of which this <code>SqlNode</code> is
    * the root.
    *
-   * @param dialect     Dialect
-   * @param forceParens wraps all expressions in parentheses; good for parse
-   *                    test, but false by default.
+   * <p>Typical return values are:
    *
-   *                    <p>Typical return values are:</p>
-   *                    <ul>
-   *                    <li>'It''s a bird!'</li>
-   *                    <li>NULL</li>
-   *                    <li>12.3</li>
-   *                    <li>DATE '1969-04-29'</li>
-   *                    </ul>
+   * <ul>
+   * <li>'It''s a bird!'
+   * <li>NULL
+   * <li>12.3
+   * <li>DATE '1969-04-29'
+   * </ul>
+   *
+   * @param dialect     Dialect (null for ANSI SQL)
+   * @param forceParens Whether to wrap all expressions in parentheses;
+   *                    useful for parse test, but false by default
    */
   public SqlString toSqlString(SqlDialect dialect, boolean forceParens) {
     if (dialect == null) {
-      dialect = SqlDialect.DUMMY;
+      dialect = AnsiSqlDialect.DEFAULT;
     }
     SqlPrettyWriter writer = new SqlPrettyWriter(dialect);
     writer.setAlwaysUseParentheses(forceParens);
     writer.setSelectListItemsOnSeparateLines(false);
     writer.setIndentation(0);
     unparse(writer, 0, 0);
-    final String sql = writer.toString();
-    return new SqlString(dialect, sql);
+    return writer.toSqlString();
   }
 
   public SqlString toSqlString(SqlDialect dialect) {

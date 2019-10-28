@@ -22,10 +22,12 @@ import org.apache.calcite.plan.RelOptRuleCall;
 import org.apache.calcite.plan.RelTrait;
 import org.apache.calcite.plan.RelTraitDef;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.core.RelFactories;
+import org.apache.calcite.tools.RelBuilderFactory;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.function.Predicate;
 
 /**
  * Abstract base class for a rule which converts from one calling convention to
@@ -45,11 +47,20 @@ public abstract class ConverterRule extends RelOptRule {
    * @param clazz       Type of relational expression to consider converting
    * @param in          Trait of relational expression to consider converting
    * @param out         Trait which is converted to
-   * @param description Description of rule
+   * @param descriptionPrefix Description prefix of rule
    */
   public ConverterRule(Class<? extends RelNode> clazz, RelTrait in,
-      RelTrait out, String description) {
-    this(clazz, Predicates.<RelNode>alwaysTrue(), in, out, description);
+      RelTrait out, String descriptionPrefix) {
+    this(clazz, (Predicate<RelNode>) r -> true, in, out,
+        RelFactories.LOGICAL_BUILDER, descriptionPrefix);
+  }
+
+  @SuppressWarnings("Guava")
+  @Deprecated // to be removed before 2.0
+  public <R extends RelNode> ConverterRule(Class<R> clazz,
+      com.google.common.base.Predicate<? super R> predicate,
+      RelTrait in, RelTrait out, String descriptionPrefix) {
+    this(clazz, predicate, in, out, RelFactories.LOGICAL_BUILDER, descriptionPrefix);
   }
 
   /**
@@ -59,20 +70,29 @@ public abstract class ConverterRule extends RelOptRule {
    * @param predicate   Predicate on the relational expression
    * @param in          Trait of relational expression to consider converting
    * @param out         Trait which is converted to
-   * @param description Description of rule
+   * @param relBuilderFactory Builder for relational expressions
+   * @param descriptionPrefix Description prefix of rule
    */
   public <R extends RelNode> ConverterRule(Class<R> clazz,
       Predicate<? super R> predicate, RelTrait in, RelTrait out,
-      String description) {
+      RelBuilderFactory relBuilderFactory, String descriptionPrefix) {
     super(convertOperand(clazz, predicate, in),
-        description == null
-            ? "ConverterRule<in=" + in + ",out=" + out + ">"
-            : description);
-    this.inTrait = Preconditions.checkNotNull(in);
-    this.outTrait = Preconditions.checkNotNull(out);
+        relBuilderFactory,
+        createDescription(descriptionPrefix, in, out));
+    this.inTrait = Objects.requireNonNull(in);
+    this.outTrait = Objects.requireNonNull(out);
 
     // Source and target traits must have same type
     assert in.getTraitDef() == out.getTraitDef();
+  }
+
+  @SuppressWarnings("Guava")
+  @Deprecated // to be removed before 2.0
+  public <R extends RelNode> ConverterRule(Class<R> clazz,
+      com.google.common.base.Predicate<? super R> predicate, RelTrait in,
+      RelTrait out, RelBuilderFactory relBuilderFactory, String description) {
+    this(clazz, (Predicate<? super R>) predicate::apply, in, out,
+        relBuilderFactory, description);
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -93,6 +113,15 @@ public abstract class ConverterRule extends RelOptRule {
     return inTrait.getTraitDef();
   }
 
+  private static String createDescription(String descriptionPrefix,
+      RelTrait in, RelTrait out) {
+    return String.format(Locale.ROOT, "%s(in:%s,out:%s)",
+        Objects.toString(descriptionPrefix, "ConverterRule"), in, out);
+  }
+
+  /** Converts a relational expression to the target trait(s) of this rule.
+   *
+   * <p>Returns null if conversion is not possible. */
   public abstract RelNode convert(RelNode rel);
 
   /**

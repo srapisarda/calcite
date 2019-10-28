@@ -31,10 +31,10 @@ import org.apache.calcite.sql.SqlKind;
  * <pre>SELECT emp.empno FROM emp</pre>
  * </blockquote>
  *
- * but there is a specialized expression {@link RexInputRef} for this purpose.
- * So in practice, <code>RexFieldAccess</code> is usually used to access fields
- * of correlating variables, for example the expression <code>emp.deptno</code>
- * in
+ * <p>but there is a specialized expression {@link RexInputRef} for this
+ * purpose. So in practice, <code>RexFieldAccess</code> is usually used to
+ * access fields of correlating variables, for example the expression
+ * <code>emp.deptno</code> in
  *
  * <blockquote>
  * <pre>SELECT ename
@@ -90,6 +90,25 @@ public class RexFieldAccess extends RexNode {
    */
   public RexNode getReferenceExpr() {
     return expr;
+  }
+
+  @Override public boolean equals(Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (o == null || getClass() != o.getClass()) {
+      return false;
+    }
+
+    RexFieldAccess that = (RexFieldAccess) o;
+
+    return field.equals(that.field) && expr.equals(that.expr);
+  }
+
+  @Override public int hashCode() {
+    int result = expr.hashCode();
+    result = 31 * result + field.hashCode();
+    return result;
   }
 }
 

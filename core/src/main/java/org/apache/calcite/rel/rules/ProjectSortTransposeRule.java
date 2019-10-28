@@ -18,9 +18,12 @@ package org.apache.calcite.rel.rules;
 
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
+import org.apache.calcite.plan.RelOptRuleOperand;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Project;
+import org.apache.calcite.rel.core.RelFactories;
 import org.apache.calcite.rel.core.Sort;
+import org.apache.calcite.tools.RelBuilderFactory;
 
 import com.google.common.collect.ImmutableList;
 
@@ -33,17 +36,29 @@ import com.google.common.collect.ImmutableList;
  */
 public class ProjectSortTransposeRule extends RelOptRule {
   public static final ProjectSortTransposeRule INSTANCE =
-      new ProjectSortTransposeRule();
+      new ProjectSortTransposeRule(Project.class, Sort.class,
+          RelFactories.LOGICAL_BUILDER);
 
   //~ Constructors -----------------------------------------------------------
 
-  /**
-   * Creates a ProjectSortTransposeRule.
-   */
-  private ProjectSortTransposeRule() {
-    super(
-        operand(Project.class,
-            operand(Sort.class, any())));
+  /** Creates a ProjectSortTransposeRule. */
+  private ProjectSortTransposeRule(Class<Project> projectClass,
+      Class<Sort> sortClass, RelBuilderFactory relBuilderFactory) {
+    this(
+        operand(projectClass,
+            operand(sortClass, any())),
+        relBuilderFactory, null);
+  }
+
+  @Deprecated // to be removed before 2.0
+  protected ProjectSortTransposeRule(RelOptRuleOperand operand) {
+    this(operand, RelFactories.LOGICAL_BUILDER, null);
+  }
+
+  /** Creates a ProjectSortTransposeRule with an operand. */
+  protected ProjectSortTransposeRule(RelOptRuleOperand operand,
+      RelBuilderFactory relBuilderFactory, String description) {
+    super(operand, relBuilderFactory, description);
   }
 
   //~ Methods ----------------------------------------------------------------

@@ -23,6 +23,7 @@ import org.apache.calcite.sql.type.ReturnTypes;
 import org.apache.calcite.sql.util.SqlBasicVisitor;
 import org.apache.calcite.sql.util.SqlVisitor;
 import org.apache.calcite.sql.validate.SqlValidator;
+import org.apache.calcite.sql.validate.SqlValidatorImpl;
 import org.apache.calcite.sql.validate.SqlValidatorScope;
 
 import static org.apache.calcite.util.Static.RESOURCE;
@@ -64,6 +65,12 @@ public class SqlOverOperator extends SqlBinaryOperator {
     assert call.getOperator() == this;
     assert call.operandCount() == 2;
     SqlCall aggCall = call.operand(0);
+    switch (aggCall.getKind()) {
+    case RESPECT_NULLS:
+    case IGNORE_NULLS:
+      validator.validateCall(aggCall, scope);
+      aggCall = aggCall.operand(0);
+    }
     if (!aggCall.getOperator().isAggregator()) {
       throw validator.newValidationError(aggCall, RESOURCE.overNonAggregate());
     }
@@ -105,8 +112,8 @@ public class SqlOverOperator extends SqlBinaryOperator {
     RelDataType ret = aggCall.getOperator().inferReturnType(opBinding);
 
     // Copied from validateOperands
-    validator.setValidatedNodeType(call, ret);
-    validator.setValidatedNodeType(agg, ret);
+    ((SqlValidatorImpl) validator).setValidatedNodeType(call, ret);
+    ((SqlValidatorImpl) validator).setValidatedNodeType(agg, ret);
     return ret;
   }
 

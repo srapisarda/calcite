@@ -46,7 +46,7 @@ public class HepRuleCall extends RelOptRuleCall {
       List<RelNode> parents) {
     super(planner, operand, rels, nodeChildren, parents);
 
-    results = new ArrayList<RelNode>();
+    results = new ArrayList<>();
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -56,6 +56,7 @@ public class HepRuleCall extends RelOptRuleCall {
     final RelNode rel0 = rels[0];
     RelOptUtil.verifyTypeEquivalence(rel0, rel, rel0);
     results.add(rel);
+    rel(0).getCluster().invalidateMetadataQuery();
   }
 
   List<RelNode> getResults() {

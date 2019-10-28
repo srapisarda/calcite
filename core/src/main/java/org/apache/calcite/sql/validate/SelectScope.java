@@ -48,7 +48,7 @@ import java.util.List;
  * {@link SqlValidatorNamespace} when resolving 'name', and
  * as a {@link SqlValidatorScope} when resolving 'gender'.</p>
  *
- * <h3>Scopes</h3>
+ * <h2>Scopes</h2>
  *
  * <p>In the query</p>
  *
@@ -72,7 +72,7 @@ import java.util.List;
  * defined in the SELECT clause</li>
  * </ul>
  *
- * <h3>Namespaces</h3>
+ * <h2>Namespaces</h2>
  *
  * <p>In the above query, there are 4 namespaces:</p>
  *
@@ -181,7 +181,7 @@ public class SelectScope extends ListScope {
       // Compute on demand first call.
       orderList = new SqlNodeList(SqlParserPos.ZERO);
       if (children.size() == 1) {
-        final SqlValidatorNamespace child = children.get(0).right;
+        final SqlValidatorNamespace child = children.get(0).namespace;
         final List<Pair<SqlNode, SqlMonotonicity>> monotonicExprs =
             child.getMonotonicExprs();
         if (monotonicExprs.size() > 0) {

@@ -29,6 +29,7 @@ import org.apache.calcite.rel.core.RelFactories;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
+import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
@@ -44,16 +45,14 @@ import org.apache.calcite.util.Util;
 import org.apache.calcite.util.mapping.Mapping;
 import org.apache.calcite.util.mapping.Mappings;
 
-import com.google.common.base.Function;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
@@ -79,8 +78,9 @@ public class AggregateJoinTransposeRule extends RelOptRule {
       Class<? extends Join> joinClass, RelBuilderFactory relBuilderFactory,
       boolean allowFunctions) {
     super(
-        operand(aggregateClass, null, Aggregate.IS_SIMPLE,
-            operand(joinClass, any())), relBuilderFactory, null);
+        operandJ(aggregateClass, null, agg -> isAggregateSupported(agg, allowFunctions),
+            operand(joinClass, null, any())),
+        relBuilderFactory, null);
     this.allowFunctions = allowFunctions;
   }
 
@@ -125,37 +125,47 @@ public class AggregateJoinTransposeRule extends RelOptRule {
         allowFunctions);
   }
 
+  private static boolean isAggregateSupported(Aggregate aggregate, boolean allowFunctions) {
+    if (!allowFunctions && !aggregate.getAggCallList().isEmpty()) {
+      return false;
+    }
+    if (aggregate.getGroupType() != Aggregate.Group.SIMPLE) {
+      return false;
+    }
+    // If any aggregate functions do not support splitting, bail out
+    // If any aggregate call has a filter or is distinct, bail out
+    for (AggregateCall aggregateCall : aggregate.getAggCallList()) {
+      if (aggregateCall.getAggregation().unwrap(SqlSplittableAggFunction.class)
+          == null) {
+        return false;
+      }
+      if (aggregateCall.filterArg >= 0 || aggregateCall.isDistinct()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // OUTER joins are supported for group by without aggregate functions
+  // FULL OUTER JOIN is not supported since it could produce wrong result
+  // due to bug (CALCITE-3012)
+  private boolean isJoinSupported(final Join join, final Aggregate aggregate) {
+    return join.getJoinType() == JoinRelType.INNER || aggregate.getAggCallList().isEmpty();
+  }
+
   public void onMatch(RelOptRuleCall call) {
     final Aggregate aggregate = call.rel(0);
     final Join join = call.rel(1);
     final RexBuilder rexBuilder = aggregate.getCluster().getRexBuilder();
     final RelBuilder relBuilder = call.builder();
 
-    // If any aggregate functions do not support splitting, bail out
-    // If any aggregate call has a filter, bail out
-    for (AggregateCall aggregateCall : aggregate.getAggCallList()) {
-      if (aggregateCall.getAggregation().unwrap(SqlSplittableAggFunction.class)
-          == null) {
-        return;
-      }
-      if (aggregateCall.filterArg >= 0) {
-        return;
-      }
-    }
-
-    // If it is not an inner join, we do not push the
-    // aggregate operator
-    if (join.getJoinType() != JoinRelType.INNER) {
-      return;
-    }
-
-    if (!allowFunctions && !aggregate.getAggCallList().isEmpty()) {
+    if (!isJoinSupported(join, aggregate)) {
       return;
     }
 
     // Do the columns used by the join appear in the output of the aggregate?
     final ImmutableBitSet aggregateColumns = aggregate.getGroupSet();
-    final RelMetadataQuery mq = RelMetadataQuery.instance();
+    final RelMetadataQuery mq = call.getMetadataQuery();
     final ImmutableBitSet keyColumns = keyColumns(aggregateColumns,
         mq.getPulledUpPredicates(join).pulledUpPredicates);
     final ImmutableBitSet joinColumns =
@@ -166,9 +176,9 @@ public class AggregateJoinTransposeRule extends RelOptRule {
         aggregateColumns.union(joinColumns);
 
     // Split join condition
-    final List<Integer> leftKeys = Lists.newArrayList();
-    final List<Integer> rightKeys = Lists.newArrayList();
-    final List<Boolean> filterNulls = Lists.newArrayList();
+    final List<Integer> leftKeys = new ArrayList<>();
+    final List<Integer> rightKeys = new ArrayList<>();
+    final List<Boolean> filterNulls = new ArrayList<>();
     RexNode nonEquiConj =
         RelOptUtil.splitJoinCondition(join.getLeft(), join.getRight(),
             join.getCondition(), leftKeys, rightKeys, filterNulls);
@@ -196,6 +206,11 @@ public class AggregateJoinTransposeRule extends RelOptRule {
       for (Ord<Integer> c : Ord.zip(belowAggregateKeyNotShifted)) {
         map.put(c.e, belowOffset + c.i);
       }
+      final Mappings.TargetMapping mapping =
+          s == 0
+              ? Mappings.createIdentity(fieldCount)
+              : Mappings.createShiftMapping(fieldCount + offset, 0, offset,
+                  fieldCount);
       final ImmutableBitSet belowAggregateKey =
           belowAggregateKeyNotShifted.shift(-offset);
       final boolean unique;
@@ -223,25 +238,54 @@ public class AggregateJoinTransposeRule extends RelOptRule {
       if (unique) {
         ++uniqueCount;
         side.aggregate = false;
-        side.newInput = joinInput;
+        relBuilder.push(joinInput);
+        final List<RexNode> projects = new ArrayList<>();
+        for (Integer i : belowAggregateKey) {
+          projects.add(relBuilder.field(i));
+        }
+        for (Ord<AggregateCall> aggCall : Ord.zip(aggregate.getAggCallList())) {
+          final SqlAggFunction aggregation = aggCall.e.getAggregation();
+          final SqlSplittableAggFunction splitter =
+              Objects.requireNonNull(
+                  aggregation.unwrap(SqlSplittableAggFunction.class));
+          if (!aggCall.e.getArgList().isEmpty()
+              && fieldSet.contains(ImmutableBitSet.of(aggCall.e.getArgList()))) {
+            final RexNode singleton = splitter.singleton(rexBuilder,
+                joinInput.getRowType(), aggCall.e.transform(mapping));
+
+            if (singleton instanceof RexInputRef) {
+              final int index = ((RexInputRef) singleton).getIndex();
+              if (!belowAggregateKey.get(index)) {
+                projects.add(singleton);
+                side.split.put(aggCall.i, projects.size() - 1);
+              } else {
+                side.split.put(aggCall.i, index);
+              }
+            } else {
+              projects.add(singleton);
+              side.split.put(aggCall.i, projects.size() - 1);
+            }
+          }
+        }
+        relBuilder.project(projects);
+        side.newInput = relBuilder.build();
       } else {
         side.aggregate = true;
         List<AggregateCall> belowAggCalls = new ArrayList<>();
         final SqlSplittableAggFunction.Registry<AggregateCall>
             belowAggCallRegistry = registry(belowAggCalls);
-        final Mappings.TargetMapping mapping =
-            s == 0
-                ? Mappings.createIdentity(fieldCount)
-                : Mappings.createShiftMapping(fieldCount + offset, 0, offset,
-                    fieldCount);
+        final int oldGroupKeyCount = aggregate.getGroupCount();
+        final int newGroupKeyCount = belowAggregateKey.cardinality();
         for (Ord<AggregateCall> aggCall : Ord.zip(aggregate.getAggCallList())) {
           final SqlAggFunction aggregation = aggCall.e.getAggregation();
           final SqlSplittableAggFunction splitter =
-              Preconditions.checkNotNull(
+              Objects.requireNonNull(
                   aggregation.unwrap(SqlSplittableAggFunction.class));
           final AggregateCall call1;
           if (fieldSet.contains(ImmutableBitSet.of(aggCall.e.getArgList()))) {
-            call1 = splitter.split(aggCall.e, mapping);
+            final AggregateCall splitCall = splitter.split(aggCall.e, mapping);
+            call1 = splitCall.adaptTo(joinInput, splitCall.getArgList(),
+                splitCall.filterArg, oldGroupKeyCount, newGroupKeyCount);
           } else {
             call1 = splitter.other(rexBuilder.getTypeFactory(), aggCall.e);
           }
@@ -252,8 +296,7 @@ public class AggregateJoinTransposeRule extends RelOptRule {
           }
         }
         side.newInput = relBuilder.push(joinInput)
-            .aggregate(relBuilder.groupKey(belowAggregateKey, false, null),
-                belowAggCalls)
+            .aggregate(relBuilder.groupKey(belowAggregateKey), belowAggCalls)
             .build();
       }
       offset += fieldCount;
@@ -270,11 +313,7 @@ public class AggregateJoinTransposeRule extends RelOptRule {
 
     // Update condition
     final Mapping mapping = (Mapping) Mappings.target(
-        new Function<Integer, Integer>() {
-          public Integer apply(Integer a0) {
-            return map.get(a0);
-          }
-        },
+        map::get,
         join.getRowType().getFieldCount(),
         belowOffset);
     final RexNode newCondition =
@@ -287,8 +326,7 @@ public class AggregateJoinTransposeRule extends RelOptRule {
 
     // Aggregate above to sum up the sub-totals
     final List<AggregateCall> newAggCalls = new ArrayList<>();
-    final int groupIndicatorCount =
-        aggregate.getGroupCount() + aggregate.getIndicatorCount();
+    final int groupCount = aggregate.getGroupCount();
     final int newLeftWidth = sides.get(0).newInput.getRowType().getFieldCount();
     final List<RexNode> projects =
         new ArrayList<>(
@@ -296,49 +334,50 @@ public class AggregateJoinTransposeRule extends RelOptRule {
     for (Ord<AggregateCall> aggCall : Ord.zip(aggregate.getAggCallList())) {
       final SqlAggFunction aggregation = aggCall.e.getAggregation();
       final SqlSplittableAggFunction splitter =
-          Preconditions.checkNotNull(
+          Objects.requireNonNull(
               aggregation.unwrap(SqlSplittableAggFunction.class));
       final Integer leftSubTotal = sides.get(0).split.get(aggCall.i);
       final Integer rightSubTotal = sides.get(1).split.get(aggCall.i);
       newAggCalls.add(
           splitter.topSplit(rexBuilder, registry(projects),
-              groupIndicatorCount, relBuilder.peek().getRowType(), aggCall.e,
+              groupCount, relBuilder.peek().getRowType(), aggCall.e,
               leftSubTotal == null ? -1 : leftSubTotal,
               rightSubTotal == null ? -1 : rightSubTotal + newLeftWidth));
     }
-  b:
-    if (allColumnsInAggregate && newAggCalls.isEmpty()) {
-      // no need to aggregate
-    } else {
-      relBuilder.project(projects);
-      if (allColumnsInAggregate) {
-        // let's see if we can convert
-        List<RexNode> projects2 = new ArrayList<>();
-        for (int key : Mappings.apply(mapping, aggregate.getGroupSet())) {
-          projects2.add(relBuilder.field(key));
-        }
-        for (AggregateCall newAggCall : newAggCalls) {
-          final SqlSplittableAggFunction splitter =
-              newAggCall.getAggregation()
-                  .unwrap(SqlSplittableAggFunction.class);
-          if (splitter != null) {
-            projects2.add(
-                splitter.singleton(rexBuilder, relBuilder.peek().getRowType(),
-                    newAggCall));
-          }
-        }
-        if (projects2.size()
-            == aggregate.getGroupSet().cardinality() + newAggCalls.size()) {
-          // We successfully converted agg calls into projects.
-          relBuilder.project(projects2);
-          break b;
+
+    relBuilder.project(projects);
+
+    boolean aggConvertedToProjects = false;
+    if (allColumnsInAggregate && join.getJoinType() != JoinRelType.FULL) {
+      // let's see if we can convert aggregate into projects
+      // This shouldn't be done for FULL OUTER JOIN, aggregate on top is always required
+      List<RexNode> projects2 = new ArrayList<>();
+      for (int key : Mappings.apply(mapping, aggregate.getGroupSet())) {
+        projects2.add(relBuilder.field(key));
+      }
+      for (AggregateCall newAggCall : newAggCalls) {
+        final SqlSplittableAggFunction splitter =
+            newAggCall.getAggregation().unwrap(SqlSplittableAggFunction.class);
+        if (splitter != null) {
+          final RelDataType rowType = relBuilder.peek().getRowType();
+          projects2.add(splitter.singleton(rexBuilder, rowType, newAggCall));
         }
       }
+      if (projects2.size()
+          == aggregate.getGroupSet().cardinality() + newAggCalls.size()) {
+        // We successfully converted agg calls into projects.
+        relBuilder.project(projects2);
+        aggConvertedToProjects = true;
+      }
+    }
+
+    if (!aggConvertedToProjects) {
       relBuilder.aggregate(
           relBuilder.groupKey(Mappings.apply(mapping, aggregate.getGroupSet()),
-              aggregate.indicator, Mappings.apply2(mapping, aggregate.getGroupSets())),
+              Mappings.apply2(mapping, aggregate.getGroupSets())),
           newAggCalls);
     }
+
     call.transformTo(relBuilder.build());
   }
 
@@ -348,8 +387,8 @@ public class AggregateJoinTransposeRule extends RelOptRule {
   private static ImmutableBitSet keyColumns(ImmutableBitSet aggregateColumns,
       ImmutableList<RexNode> predicates) {
     SortedMap<Integer, BitSet> equivalence = new TreeMap<>();
-    for (RexNode pred : predicates) {
-      populateEquivalences(equivalence, pred);
+    for (RexNode predicate : predicates) {
+      populateEquivalences(equivalence, predicate);
     }
     ImmutableBitSet keyColumns = aggregateColumns;
     for (Integer aggregateColumn : aggregateColumns) {
@@ -390,17 +429,15 @@ public class AggregateJoinTransposeRule extends RelOptRule {
 
   /** Creates a {@link org.apache.calcite.sql.SqlSplittableAggFunction.Registry}
    * that is a view of a list. */
-  private static <E> SqlSplittableAggFunction.Registry<E>
-  registry(final List<E> list) {
-    return new SqlSplittableAggFunction.Registry<E>() {
-      public int register(E e) {
-        int i = list.indexOf(e);
-        if (i < 0) {
-          i = list.size();
-          list.add(e);
-        }
-        return i;
+  private static <E> SqlSplittableAggFunction.Registry<E> registry(
+      final List<E> list) {
+    return e -> {
+      int i = list.indexOf(e);
+      if (i < 0) {
+        i = list.size();
+        list.add(e);
       }
+      return i;
     };
   }
 

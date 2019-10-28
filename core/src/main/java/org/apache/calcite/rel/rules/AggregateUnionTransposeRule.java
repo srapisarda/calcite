@@ -30,6 +30,8 @@ import org.apache.calcite.rel.metadata.RelMdUtil;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.sql.SqlAggFunction;
+import org.apache.calcite.sql.fun.SqlAnyValueAggFunction;
+import org.apache.calcite.sql.fun.SqlBitOpAggFunction;
 import org.apache.calcite.sql.fun.SqlCountAggFunction;
 import org.apache.calcite.sql.fun.SqlMinMaxAggFunction;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
@@ -39,8 +41,8 @@ import org.apache.calcite.tools.RelBuilder;
 import org.apache.calcite.tools.RelBuilderFactory;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,13 +58,15 @@ public class AggregateUnionTransposeRule extends RelOptRule {
           LogicalUnion.class, RelFactories.LOGICAL_BUILDER);
 
   private static final Map<Class<? extends SqlAggFunction>, Boolean>
-  SUPPORTED_AGGREGATES = new IdentityHashMap<>();
+      SUPPORTED_AGGREGATES = new IdentityHashMap<>();
 
   static {
     SUPPORTED_AGGREGATES.put(SqlMinMaxAggFunction.class, true);
     SUPPORTED_AGGREGATES.put(SqlCountAggFunction.class, true);
     SUPPORTED_AGGREGATES.put(SqlSumAggFunction.class, true);
     SUPPORTED_AGGREGATES.put(SqlSumEmptyIsZeroAggFunction.class, true);
+    SUPPORTED_AGGREGATES.put(SqlAnyValueAggFunction.class, true);
+    SUPPORTED_AGGREGATES.put(SqlBitOpAggFunction.class, true);
   }
 
   /** Creates an AggregateUnionTransposeRule. */
@@ -104,7 +108,7 @@ public class AggregateUnionTransposeRule extends RelOptRule {
 
     List<AggregateCall> transformedAggCalls =
         transformAggCalls(
-            aggRel.copy(aggRel.getTraitSet(), aggRel.getInput(), false,
+            aggRel.copy(aggRel.getTraitSet(), aggRel.getInput(),
                 aggRel.getGroupSet(), null, aggRel.getAggCallList()),
             groupCount, aggRel.getAggCallList());
     if (transformedAggCalls == null) {
@@ -116,7 +120,7 @@ public class AggregateUnionTransposeRule extends RelOptRule {
     // create corresponding aggregates on top of each union child
     final RelBuilder relBuilder = call.builder();
     int transformCount = 0;
-    final RelMetadataQuery mq = RelMetadataQuery.instance();
+    final RelMetadataQuery mq = call.getMetadataQuery();
     for (RelNode input : union.getInputs()) {
       boolean alreadyUnique =
           RelMdUtil.areColumnsDefinitelyUnique(mq, input,
@@ -125,7 +129,7 @@ public class AggregateUnionTransposeRule extends RelOptRule {
       relBuilder.push(input);
       if (!alreadyUnique) {
         ++transformCount;
-        relBuilder.aggregate(relBuilder.groupKey(aggRel.getGroupSet(), false, null),
+        relBuilder.aggregate(relBuilder.groupKey(aggRel.getGroupSet()),
             aggRel.getAggCallList());
       }
     }
@@ -140,14 +144,14 @@ public class AggregateUnionTransposeRule extends RelOptRule {
     // create a new union whose children are the aggregates created above
     relBuilder.union(true, union.getInputs().size());
     relBuilder.aggregate(
-        relBuilder.groupKey(aggRel.getGroupSet(), aggRel.indicator, aggRel.getGroupSets()),
+        relBuilder.groupKey(aggRel.getGroupSet(), aggRel.getGroupSets()),
         transformedAggCalls);
     call.transformTo(relBuilder.build());
   }
 
   private List<AggregateCall> transformAggCalls(RelNode input, int groupCount,
       List<AggregateCall> origCalls) {
-    final List<AggregateCall> newCalls = Lists.newArrayList();
+    final List<AggregateCall> newCalls = new ArrayList<>();
     for (Ord<AggregateCall> ord : Ord.zip(origCalls)) {
       final AggregateCall origCall = ord.e;
       if (origCall.isDistinct()
@@ -170,8 +174,9 @@ public class AggregateUnionTransposeRule extends RelOptRule {
       }
       AggregateCall newCall =
           AggregateCall.create(aggFun, origCall.isDistinct(),
-              ImmutableList.of(groupCount + ord.i), -1, groupCount, input,
-              aggType, origCall.getName());
+              origCall.isApproximate(), origCall.ignoreNulls(),
+              ImmutableList.of(groupCount + ord.i), -1, origCall.collation,
+              groupCount, input, aggType, origCall.getName());
       newCalls.add(newCall);
     }
     return newCalls;

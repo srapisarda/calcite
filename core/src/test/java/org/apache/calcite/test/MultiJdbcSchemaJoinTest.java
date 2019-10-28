@@ -17,10 +17,16 @@
 package org.apache.calcite.test;
 
 import org.apache.calcite.adapter.java.ReflectiveSchema;
+import org.apache.calcite.adapter.jdbc.JdbcCatalogSchema;
 import org.apache.calcite.adapter.jdbc.JdbcSchema;
+import org.apache.calcite.config.CalciteSystemProperty;
 import org.apache.calcite.jdbc.CalciteConnection;
-import org.apache.calcite.prepare.CalcitePrepareImpl;
+import org.apache.calcite.jdbc.CalciteJdbc41Factory;
+import org.apache.calcite.jdbc.CalciteSchema;
+import org.apache.calcite.jdbc.Driver;
 import org.apache.calcite.schema.SchemaPlus;
+
+import org.apache.commons.dbcp2.BasicDataSource;
 
 import com.google.common.collect.Sets;
 
@@ -28,14 +34,18 @@ import org.junit.Test;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.HashSet;
+import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 
 import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
@@ -86,6 +96,30 @@ public class MultiJdbcSchemaJoinTest {
     test();
   }
 
+  /** Tests {@link org.apache.calcite.adapter.jdbc.JdbcCatalogSchema}. */
+  @Test public void test3() throws SQLException {
+    final BasicDataSource dataSource = new BasicDataSource();
+    dataSource.setUrl(TempDb.INSTANCE.getUrl());
+    dataSource.setUsername("");
+    dataSource.setPassword("");
+    final JdbcCatalogSchema schema =
+        JdbcCatalogSchema.create(null, "", dataSource, "PUBLIC");
+    assertThat(schema.getSubSchemaNames(),
+        is(Sets.newHashSet("INFORMATION_SCHEMA", "PUBLIC", "SYSTEM_LOBS")));
+    final CalciteSchema rootSchema0 =
+        CalciteSchema.createRootSchema(false, false, "", schema);
+    final Driver driver = new Driver();
+    final CalciteJdbc41Factory factory = new CalciteJdbc41Factory();
+    final String sql = "select count(*) as c from information_schema.schemata";
+    try (Connection connection =
+             factory.newConnection(driver, factory,
+                 "jdbc:calcite:", new Properties(), rootSchema0, null);
+         Statement stmt3 = connection.createStatement();
+         ResultSet rs = stmt3.executeQuery(sql)) {
+      assertThat(CalciteAssert.toString(rs), equalTo("C=3\n"));
+    }
+  }
+
   private Connection setup() throws SQLException {
     // Create a jdbc database & table
     final String db = TempDb.INSTANCE.getUrl();
@@ -111,7 +145,7 @@ public class MultiJdbcSchemaJoinTest {
     return connection;
   }
 
-  @Test public void testJdbcWithEnumerableJoin() throws SQLException {
+  @Test public void testJdbcWithEnumerableHashJoin() throws SQLException {
     // This query works correctly
     String query = "select t.id, t.field1 "
         + "from db.table1 t join \"hr\".\"emps\" e on e.\"empid\" = t.id";
@@ -120,7 +154,7 @@ public class MultiJdbcSchemaJoinTest {
   }
 
   @Test public void testEnumerableWithJdbcJoin() throws SQLException {
-    //  * compared to testJdbcWithEnumerableJoin, the join order is reversed
+    //  * compared to testJdbcWithEnumerableHashJoin, the join order is reversed
     //  * the query fails with a CannotPlanException
     String query = "select t.id, t.field1 "
         + "from \"hr\".\"emps\" e join db.table1 t on e.\"empid\" = t.id";
@@ -150,7 +184,7 @@ public class MultiJdbcSchemaJoinTest {
     Statement stmt = calciteConnection.createStatement();
     try {
       ResultSet rs;
-      if (CalcitePrepareImpl.DEBUG) {
+      if (CalciteSystemProperty.DEBUG.value()) {
         rs = stmt.executeQuery("explain plan for " + query);
         rs.next();
         System.out.println(rs.getString(1));
@@ -158,7 +192,7 @@ public class MultiJdbcSchemaJoinTest {
 
       // Run the actual query
       rs = stmt.executeQuery(query);
-      Set<Integer> ids = Sets.newHashSet();
+      Set<Integer> ids = new HashSet<>();
       while (rs.next()) {
         ids.add(rs.getInt(1));
       }
@@ -168,7 +202,7 @@ public class MultiJdbcSchemaJoinTest {
     }
   }
 
-  @Test public void testSchemaCache() throws Exception {
+  @Test public void testSchemaConsistency() throws Exception {
     // Create a database
     final String db = TempDb.INSTANCE.getUrl();
     Connection c1 = DriverManager.getConnection(db, "", "");
@@ -183,9 +217,7 @@ public class MultiJdbcSchemaJoinTest {
     SchemaPlus rootSchema = calciteConnection.getRootSchema();
     final DataSource ds =
         JdbcSchema.dataSource(db, "org.hsqldb.jdbcDriver", "", "");
-    final SchemaPlus s =
-        rootSchema.add("DB",
-            JdbcSchema.create(rootSchema, "DB", ds, null, null));
+    rootSchema.add("DB", JdbcSchema.create(rootSchema, "DB", ds, null, null));
 
     Statement stmt3 = connection.createStatement();
     ResultSet rs;
@@ -196,26 +228,26 @@ public class MultiJdbcSchemaJoinTest {
       fail("expected error, got " + rs);
     } catch (SQLException e) {
       assertThat(e.getCause().getCause().getMessage(),
-          equalTo("Table 'DB.TABLE2' not found"));
+          equalTo("Object 'TABLE2' not found within 'DB'"));
     }
 
     stmt1.execute("create table table2(id varchar(10) not null primary key, "
         + "field1 varchar(10))");
     stmt1.execute("insert into table2 values('a', 'aaaa')");
 
-    // fails, table not visible due to caching
-    try {
-      rs = stmt3.executeQuery("select * from db.table2");
-      fail("expected error, got " + rs);
-    } catch (SQLException e) {
-      assertThat(e.getCause().getCause().getMessage(),
-          equalTo("Table 'DB.TABLE2' not found"));
-    }
+    PreparedStatement stmt2 =
+        connection.prepareStatement("select * from db.table2");
 
-    // disable caching and table becomes visible
-    s.setCacheEnabled(false);
-    rs = stmt3.executeQuery("select * from db.table2");
+    stmt1.execute("alter table table2 add column field2 varchar(10)");
+
+    // "field2" not visible to stmt2
+    rs = stmt2.executeQuery();
     assertThat(CalciteAssert.toString(rs), equalTo("ID=a; FIELD1=aaaa\n"));
+
+    // "field2" visible to a new query
+    rs = stmt3.executeQuery("select * from db.table2");
+    assertThat(CalciteAssert.toString(rs),
+        equalTo("ID=a; FIELD1=aaaa; FIELD2=null\n"));
     c1.close();
   }
 

@@ -18,6 +18,7 @@ package org.apache.calcite.test;
 
 import org.apache.calcite.avatica.util.Spaces;
 import org.apache.calcite.util.Pair;
+import org.apache.calcite.util.Sources;
 import org.apache.calcite.util.Util;
 import org.apache.calcite.util.XmlOutput;
 
@@ -34,14 +35,15 @@ import org.w3c.dom.Text;
 import org.xml.sax.SAXException;
 
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Writer;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
@@ -55,18 +57,17 @@ import javax.xml.parsers.ParserConfigurationException;
  * <p>Typical usage is as follows. A test case class defines a method
  *
  * <blockquote><pre><code>
- *
  * package com.acme.test;
- *
+ * &nbsp;
  * public class MyTest extends TestCase {
  *   public DiffRepository getDiffRepos() {
  *     return DiffRepository.lookup(MyTest.class);
  *   }
- *
+ * &nbsp;
  *   &#64;Test public void testToUpper() {
  *     getDiffRepos().assertEquals("${result}", "${string}");
  *   }
- *
+ * &nbsp;
  *   &#64;Test public void testToLower() {
  *     getDiffRepos().assertEquals("Multi-line\nstring", "${string}");
  *   }
@@ -77,7 +78,6 @@ import javax.xml.parsers.ParserConfigurationException;
  * <code>src/test/resources/com/acme/test/MyTest.xml</code>:</p>
  *
  * <blockquote><pre><code>
- *
  * &lt;Root&gt;
  *     &lt;TestCase name="testToUpper"&gt;
  *         &lt;Resource name="string"&gt;
@@ -212,12 +212,9 @@ public class DiffRepository {
         flushDoc();
       }
       this.root = doc.getDocumentElement();
-      if (!root.getNodeName().equals(ROOT_TAG)) {
-        throw new RuntimeException("expected root element of type '" + ROOT_TAG
-            + "', but found '" + root.getNodeName() + "'");
-      }
+      validate(this.root);
     } catch (ParserConfigurationException | SAXException e) {
-      throw Util.newInternal(e, "error while creating xml parser");
+      throw new RuntimeException("error while creating xml parser", e);
     }
     indent = logFile.getPath().contains("RelOptRulesTest")
         || logFile.getPath().contains("SqlToRelConverterTest")
@@ -523,21 +520,35 @@ public class DiffRepository {
    * Flushes the reference document to the file system.
    */
   private void flushDoc() {
-    FileWriter w = null;
     try {
       boolean b = logFile.getParentFile().mkdirs();
       Util.discard(b);
-      w = new FileWriter(logFile);
-      write(doc, w, indent);
+      try (Writer w = Util.printWriter(logFile)) {
+        write(doc, w, indent);
+      }
     } catch (IOException e) {
-      throw Util.newInternal(e,
-          "error while writing test reference log '" + logFile + "'");
-    } finally {
-      if (w != null) {
-        try {
-          w.close();
-        } catch (IOException e) {
-          // ignore
+      throw new RuntimeException("error while writing test reference log '"
+          + logFile + "'", e);
+    }
+  }
+
+  /** Validates the root element. */
+  private static void validate(Element root) {
+    if (!root.getNodeName().equals(ROOT_TAG)) {
+      throw new RuntimeException("expected root element of type '" + ROOT_TAG
+          + "', but found '" + root.getNodeName() + "'");
+    }
+
+    // Make sure that there are no duplicate test cases.
+    final Set<String> testCases = new HashSet<>();
+    final NodeList childNodes = root.getChildNodes();
+    for (int i = 0; i < childNodes.getLength(); i++) {
+      Node child = childNodes.item(i);
+      if (child.getNodeName().equals(TEST_CASE_TAG)) {
+        Element testCase = (Element) child;
+        final String name = testCase.getAttribute(TEST_CASE_NAME_ATTR);
+        if (!testCases.add(name)) {
+          throw new RuntimeException("TestCase '" + name + "' is duplicate");
         }
       }
     }
@@ -757,7 +768,9 @@ public class DiffRepository {
     if (diffRepository == null) {
       final URL refFile = findFile(clazz, ".xml");
       final File logFile =
-          new File(refFile.getFile().replace("test-classes", "surefire"));
+          new File(
+              Sources.of(refFile).file().getAbsolutePath()
+                  .replace("test-classes", "surefire"));
       diffRepository =
           new DiffRepository(refFile, logFile, baseRepository, filter);
       MAP_CLASS_TO_REPOSITORY.put(clazz, diffRepository);

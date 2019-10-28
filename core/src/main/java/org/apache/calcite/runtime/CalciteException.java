@@ -16,6 +16,8 @@
  */
 package org.apache.calcite.runtime;
 
+import org.apache.calcite.config.CalciteSystemProperty;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,7 +60,9 @@ public class CalciteException extends RuntimeException {
     // TODO: Force the caller to pass in a Logger as a trace argument for
     // better context.  Need to extend ResGen for this.
     LOGGER.trace("CalciteException", this);
-    LOGGER.error(toString());
+    if (CalciteSystemProperty.DEBUG.value()) {
+      LOGGER.error(toString());
+    }
   }
 }
 

@@ -27,49 +27,35 @@ import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
+import org.apache.calcite.rex.RexDigestIncludeType;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.sql.SqlExplainLevel;
 import org.apache.calcite.sql.type.SqlTypeUtil;
 import org.apache.calcite.util.Pair;
 
-import com.google.common.base.Function;
-import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * Relational expression whose value is a sequence of zero or more literal row
  * values.
  */
 public abstract class Values extends AbstractRelNode {
-  /**
-   * Lambda that helps render tuples as strings.
-   */
-  private static final Function<ImmutableList<RexLiteral>, Object> F =
-      new Function<ImmutableList<RexLiteral>, Object>() {
-        public Object apply(ImmutableList<RexLiteral> tuple) {
-          String s = tuple.toString();
-          assert s.startsWith("[");
-          assert s.endsWith("]");
-          return "{ " + s.substring(1, s.length() - 1) + " }";
-        }
-      };
 
-  /** Predicate, to be used when defining an operand of a {@link RelOptRule},
-   * that returns true if a Values contains zero tuples.
-   *
-   * <p>This is the conventional way to represent an empty relational
-   * expression. There are several rules that recognize empty relational
-   * expressions and prune away that section of the tree.
-   */
-  public static final Predicate<? super Values> IS_EMPTY =
-      new Predicate<Values>() {
-        public boolean apply(Values values) {
-          return values.getTuples().isEmpty();
-        }
-      };
+  public static final Predicate<? super Values> IS_EMPTY_J = Values::isEmpty;
+
+  @SuppressWarnings("Guava")
+  @Deprecated // to be removed before 2.0
+  public static final com.google.common.base.Predicate<? super Values>
+      IS_EMPTY = Values::isEmpty;
+
+  @SuppressWarnings("Guava")
+  @Deprecated // to be removed before 2.0
+  public static final com.google.common.base.Predicate<? super Values>
+      IS_NOT_EMPTY = Values::isNotEmpty;
 
   //~ Instance fields --------------------------------------------------------
 
@@ -110,6 +96,28 @@ public abstract class Values extends AbstractRelNode {
   }
 
   //~ Methods ----------------------------------------------------------------
+
+  /** Predicate, to be used when defining an operand of a {@link RelOptRule},
+   * that returns true if a Values contains zero tuples.
+   *
+   * <p>This is the conventional way to represent an empty relational
+   * expression. There are several rules that recognize empty relational
+   * expressions and prune away that section of the tree.
+   */
+  public static boolean isEmpty(Values values) {
+    return values.getTuples().isEmpty();
+  }
+
+  /** Predicate, to be used when defining an operand of a {@link RelOptRule},
+   * that returns true if a Values contains one or more tuples.
+   *
+   * <p>This is the conventional way to represent an empty relational
+   * expression. There are several rules that recognize empty relational
+   * expressions and prune away that section of the tree.
+   */
+  public static boolean isNotEmpty(Values values) {
+    return !isEmpty(values);
+  }
 
   public ImmutableList<ImmutableList<RexLiteral>> getTuples(RelInput input) {
     return input.getTuples("tuples");
@@ -167,14 +175,23 @@ public abstract class Values extends AbstractRelNode {
     // A little adapter just to get the tuples to come out
     // with curly brackets instead of square brackets.  Plus
     // more whitespace for readability.
-    return super.explainTerms(pw)
+    RelWriter relWriter = super.explainTerms(pw)
         // For rel digest, include the row type since a rendered
         // literal may leave the type ambiguous (e.g. "null").
         .itemIf("type", rowType,
             pw.getDetailLevel() == SqlExplainLevel.DIGEST_ATTRIBUTES)
-        .itemIf("type", rowType.getFieldList(), pw.nest())
-        .itemIf("tuples", Lists.transform(tuples, F), !pw.nest())
-        .itemIf("tuples", tuples, pw.nest());
+        .itemIf("type", rowType.getFieldList(), pw.nest());
+    if (pw.nest()) {
+      pw.item("tuples", tuples);
+    } else {
+      pw.item("tuples",
+          tuples.stream()
+              .map(row -> row.stream()
+                  .map(lit -> lit.computeDigest(RexDigestIncludeType.NO_TYPE))
+                  .collect(Collectors.joining(", ", "{ ", " }")))
+              .collect(Collectors.joining(", ", "[", "]")));
+    }
+    return relWriter;
   }
 }
 

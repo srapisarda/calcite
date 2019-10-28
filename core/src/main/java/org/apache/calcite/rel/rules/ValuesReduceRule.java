@@ -21,6 +21,8 @@ import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
 import org.apache.calcite.plan.RelOptRuleOperand;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.core.RelFactories;
+import org.apache.calcite.rel.core.Values;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rel.logical.LogicalValues;
@@ -31,6 +33,7 @@ import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexShuttle;
 import org.apache.calcite.rex.RexUtil;
+import org.apache.calcite.tools.RelBuilderFactory;
 import org.apache.calcite.util.Util;
 import org.apache.calcite.util.trace.CalciteTrace;
 
@@ -56,6 +59,9 @@ import java.util.List;
  * <p>becomes</p>
  *
  * <blockquote><code>select x from (values (-2), (-4))</code></blockquote>
+ *
+ * <p>Ignores an empty {@code Values}; this is better dealt with by
+ * {@link PruneEmptyRules}.
  */
 public abstract class ValuesReduceRule extends RelOptRule {
   //~ Static fields/initializers ---------------------------------------------
@@ -69,7 +75,8 @@ public abstract class ValuesReduceRule extends RelOptRule {
   public static final ValuesReduceRule FILTER_INSTANCE =
       new ValuesReduceRule(
           operand(LogicalFilter.class,
-              operand(LogicalValues.class, none())),
+              operandJ(LogicalValues.class, null, Values::isNotEmpty, none())),
+          RelFactories.LOGICAL_BUILDER,
           "ValuesReduceRule(Filter)") {
         public void onMatch(RelOptRuleCall call) {
           LogicalFilter filter = call.rel(0);
@@ -85,7 +92,8 @@ public abstract class ValuesReduceRule extends RelOptRule {
   public static final ValuesReduceRule PROJECT_INSTANCE =
       new ValuesReduceRule(
           operand(LogicalProject.class,
-              operand(LogicalValues.class, none())),
+              operandJ(LogicalValues.class, null, Values::isNotEmpty, none())),
+          RelFactories.LOGICAL_BUILDER,
           "ValuesReduceRule(Project)") {
         public void onMatch(RelOptRuleCall call) {
           LogicalProject project = call.rel(0);
@@ -102,7 +110,9 @@ public abstract class ValuesReduceRule extends RelOptRule {
       new ValuesReduceRule(
           operand(LogicalProject.class,
               operand(LogicalFilter.class,
-                  operand(LogicalValues.class, none()))),
+                  operandJ(LogicalValues.class, null, Values::isNotEmpty,
+                      none()))),
+          RelFactories.LOGICAL_BUILDER,
           "ValuesReduceRule(Project-Filter)") {
         public void onMatch(RelOptRuleCall call) {
           LogicalProject project = call.rel(0);
@@ -117,10 +127,13 @@ public abstract class ValuesReduceRule extends RelOptRule {
   /**
    * Creates a ValuesReduceRule.
    *
-   * @param operand class of rels to which this rule should apply
+   * @param operand           Class of rels to which this rule should apply
+   * @param relBuilderFactory Builder for relational expressions
+   * @param desc              Description, or null to guess description
    */
-  private ValuesReduceRule(RelOptRuleOperand operand, String desc) {
-    super(operand, desc);
+  public ValuesReduceRule(RelOptRuleOperand operand,
+      RelBuilderFactory relBuilderFactory, String desc) {
+    super(operand, relBuilderFactory, desc);
     Util.discard(LOGGER);
   }
 
@@ -145,7 +158,7 @@ public abstract class ValuesReduceRule extends RelOptRule {
     RexBuilder rexBuilder = values.getCluster().getRexBuilder();
 
     // Find reducible expressions.
-    List<RexNode> reducibleExps = new ArrayList<RexNode>();
+    final List<RexNode> reducibleExps = new ArrayList<>();
     final MyRexShuttle shuttle = new MyRexShuttle();
     for (final List<RexLiteral> literalList : values.getTuples()) {
       shuttle.literalList = literalList;
@@ -175,16 +188,17 @@ public abstract class ValuesReduceRule extends RelOptRule {
 
     // Compute the values they reduce to.
     final RelOptPredicateList predicates = RelOptPredicateList.EMPTY;
-    ReduceExpressionsRule.reduceExpressions(values, reducibleExps, predicates);
+    ReduceExpressionsRule.reduceExpressions(values, reducibleExps, predicates,
+        false, true);
 
     int changeCount = 0;
     final ImmutableList.Builder<ImmutableList<RexLiteral>> tuplesBuilder =
         ImmutableList.builder();
     for (int row = 0; row < values.getTuples().size(); ++row) {
       int i = 0;
-      RexNode reducedValue;
       if (conditionExpr != null) {
-        reducedValue = reducibleExps.get((row * fieldsPerRow) + i);
+        final RexNode reducedValue =
+            reducibleExps.get((row * fieldsPerRow) + i);
         ++i;
         if (!reducedValue.isAlwaysTrue()) {
           ++changeCount;
@@ -192,17 +206,18 @@ public abstract class ValuesReduceRule extends RelOptRule {
         }
       }
 
-      ImmutableList<RexLiteral> valuesList;
+      final ImmutableList<RexLiteral> valuesList;
       if (projectExprs != null) {
         ++changeCount;
         final ImmutableList.Builder<RexLiteral> tupleBuilder =
             ImmutableList.builder();
         for (; i < fieldsPerRow; ++i) {
-          reducedValue = reducibleExps.get((row * fieldsPerRow) + i);
+          final RexNode reducedValue =
+              reducibleExps.get((row * fieldsPerRow) + i);
           if (reducedValue instanceof RexLiteral) {
             tupleBuilder.add((RexLiteral) reducedValue);
           } else if (RexUtil.isNullLiteral(reducedValue, true)) {
-            tupleBuilder.add(rexBuilder.constantNull());
+            tupleBuilder.add(rexBuilder.makeNullLiteral(reducedValue.getType()));
           } else {
             return;
           }

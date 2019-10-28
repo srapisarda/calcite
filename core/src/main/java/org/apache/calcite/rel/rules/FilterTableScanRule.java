@@ -23,16 +23,17 @@ import org.apache.calcite.plan.RelOptRuleCall;
 import org.apache.calcite.plan.RelOptRuleOperand;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.rel.core.Filter;
+import org.apache.calcite.rel.core.RelFactories;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexUtil;
 import org.apache.calcite.schema.FilterableTable;
 import org.apache.calcite.schema.ProjectableFilterableTable;
+import org.apache.calcite.tools.RelBuilderFactory;
 import org.apache.calcite.util.ImmutableIntList;
 import org.apache.calcite.util.mapping.Mapping;
 import org.apache.calcite.util.mapping.Mappings;
 
-import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 
 /**
@@ -49,23 +50,19 @@ import com.google.common.collect.ImmutableList;
  * @see org.apache.calcite.rel.rules.ProjectTableScanRule
  */
 public abstract class FilterTableScanRule extends RelOptRule {
-  public static final Predicate<TableScan> PREDICATE =
-      new Predicate<TableScan>() {
-        public boolean apply(TableScan scan) {
-          // We can only push filters into a FilterableTable or
-          // ProjectableFilterableTable.
-          final RelOptTable table = scan.getTable();
-          return table.unwrap(FilterableTable.class) != null
-              || table.unwrap(ProjectableFilterableTable.class) != null;
-        }
-      };
+  @SuppressWarnings("Guava")
+  @Deprecated // to be removed before 2.0
+  public static final com.google.common.base.Predicate<TableScan> PREDICATE =
+      FilterTableScanRule::test;
 
   /** Rule that matches Filter on TableScan. */
   public static final FilterTableScanRule INSTANCE =
       new FilterTableScanRule(
           operand(Filter.class,
-              operand(TableScan.class, null, PREDICATE, none())),
-          "FilterTableRule") {
+              operandJ(TableScan.class, null, FilterTableScanRule::test,
+                  none())),
+          RelFactories.LOGICAL_BUILDER,
+          "FilterTableScanRule") {
         public void onMatch(RelOptRuleCall call) {
           final Filter filter = call.rel(0);
           final TableScan scan = call.rel(1);
@@ -78,8 +75,10 @@ public abstract class FilterTableScanRule extends RelOptRule {
       new FilterTableScanRule(
           operand(Filter.class,
               operand(EnumerableInterpreter.class,
-                  operand(TableScan.class, null, PREDICATE, none()))),
-          "FilterTableRule:interpreter") {
+                  operandJ(TableScan.class, null, FilterTableScanRule::test,
+                      none()))),
+          RelFactories.LOGICAL_BUILDER,
+          "FilterTableScanRule:interpreter") {
         public void onMatch(RelOptRuleCall call) {
           final Filter filter = call.rel(0);
           final TableScan scan = call.rel(2);
@@ -89,12 +88,26 @@ public abstract class FilterTableScanRule extends RelOptRule {
 
   //~ Constructors -----------------------------------------------------------
 
-  /** Creates a FilterTableRule. */
+  @Deprecated // to be removed before 2.0
   protected FilterTableScanRule(RelOptRuleOperand operand, String description) {
-    super(operand, description);
+    this(operand, RelFactories.LOGICAL_BUILDER, description);
+  }
+
+  /** Creates a FilterTableScanRule. */
+  protected FilterTableScanRule(RelOptRuleOperand operand,
+      RelBuilderFactory relBuilderFactory, String description) {
+    super(operand, relBuilderFactory, description);
   }
 
   //~ Methods ----------------------------------------------------------------
+
+  public static boolean test(TableScan scan) {
+    // We can only push filters into a FilterableTable or
+    // ProjectableFilterableTable.
+    final RelOptTable table = scan.getTable();
+    return table.unwrap(FilterableTable.class) != null
+        || table.unwrap(ProjectableFilterableTable.class) != null;
+  }
 
   protected void apply(RelOptRuleCall call, Filter filter, TableScan scan) {
     final ImmutableIntList projects;

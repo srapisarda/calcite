@@ -16,6 +16,7 @@
  */
 package org.apache.calcite.adapter.csv;
 
+import org.apache.calcite.DataContext;
 import org.apache.calcite.linq4j.AbstractEnumerable;
 import org.apache.calcite.linq4j.Enumerable;
 import org.apache.calcite.linq4j.Enumerator;
@@ -29,9 +30,10 @@ import org.apache.calcite.schema.QueryableTable;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.schema.Schemas;
 import org.apache.calcite.schema.TranslatableTable;
+import org.apache.calcite.util.Source;
 
-import java.io.File;
 import java.lang.reflect.Type;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Table based on a CSV file.
@@ -39,8 +41,8 @@ import java.lang.reflect.Type;
 public class CsvTranslatableTable extends CsvTable
     implements QueryableTable, TranslatableTable {
   /** Creates a CsvTable. */
-  CsvTranslatableTable(File file, RelProtoDataType protoRowType) {
-    super(file, protoRowType);
+  CsvTranslatableTable(Source source, RelProtoDataType protoRowType) {
+    super(source, protoRowType);
   }
 
   public String toString() {
@@ -50,10 +52,12 @@ public class CsvTranslatableTable extends CsvTable
   /** Returns an enumerable over a given projection of the fields.
    *
    * <p>Called from generated code. */
-  public Enumerable<Object> project(final int[] fields) {
+  public Enumerable<Object> project(final DataContext root,
+      final int[] fields) {
+    final AtomicBoolean cancelFlag = DataContext.Variable.CANCEL_FLAG.get(root);
     return new AbstractEnumerable<Object>() {
       public Enumerator<Object> enumerator() {
-        return new CsvEnumerator<Object>(file, fieldTypes, fields);
+        return new CsvEnumerator<>(source, cancelFlag, fieldTypes, fields);
       }
     };
   }

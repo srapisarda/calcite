@@ -104,7 +104,7 @@ public class SqlParseException extends Exception
    * </pre>
    * </blockquote>
    *
-   * returns
+   * <p>returns
    *
    * <blockquote>
    * <pre>
@@ -123,7 +123,7 @@ public class SqlParseException extends Exception
     for (int[] expectedTokenSequence : expectedTokenSequences) {
       maxLength = Math.max(expectedTokenSequence.length, maxLength);
     }
-    final Set<String> set = new TreeSet<String>();
+    final Set<String> set = new TreeSet<>();
     for (int[] expectedTokenSequence : expectedTokenSequences) {
       if (expectedTokenSequence.length == maxLength) {
         set.add(

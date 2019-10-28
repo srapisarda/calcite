@@ -30,12 +30,11 @@ import org.apache.calcite.schema.Schemas;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.TranslatableTable;
 
-import com.google.common.base.Preconditions;
-
 import java.lang.reflect.Type;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Table that is a materialized view.
@@ -68,16 +67,17 @@ public class MaterializedViewTable extends ViewTable {
       RelProtoDataType relDataType,
       String viewSql,
       List<String> viewSchemaPath,
+      List<String> viewPath,
       MaterializationKey key) {
-    super(elementType, relDataType, viewSql, viewSchemaPath);
+    super(elementType, relDataType, viewSql, viewSchemaPath, viewPath);
     this.key = key;
   }
 
   /** Table macro that returns a materialized view. */
   public static MaterializedViewTableMacro create(final CalciteSchema schema,
-      final String viewSql, final List<String> viewSchemaPath,
+      final String viewSql, final List<String> viewSchemaPath, List<String> viewPath,
       final String suggestedTableName, boolean existing) {
-    return new MaterializedViewTableMacro(schema, viewSql, viewSchemaPath,
+    return new MaterializedViewTableMacro(schema, viewSql, viewSchemaPath, viewPath,
         suggestedTableName, existing);
   }
 
@@ -101,12 +101,12 @@ public class MaterializedViewTable extends ViewTable {
     private final MaterializationKey key;
 
     private MaterializedViewTableMacro(CalciteSchema schema, String viewSql,
-        List<String> viewSchemaPath, String suggestedTableName,
+        List<String> viewSchemaPath, List<String> viewPath, String suggestedTableName,
         boolean existing) {
       super(schema, viewSql,
-          viewSchemaPath != null ? viewSchemaPath : schema.path(null),
+          viewSchemaPath != null ? viewSchemaPath : schema.path(null), viewPath,
           Boolean.TRUE);
-      this.key = Preconditions.checkNotNull(
+      this.key = Objects.requireNonNull(
           MaterializationService.instance().defineMaterialization(
               schema, null, viewSql, schemaPath, suggestedTableName, true,
               existing));
@@ -122,7 +122,7 @@ public class MaterializedViewTable extends ViewTable {
       final JavaTypeFactory typeFactory =
           MATERIALIZATION_CONNECTION.getTypeFactory();
       return new MaterializedViewTable(typeFactory.getJavaClass(parsed.rowType),
-          RelDataTypeImpl.proto(parsed.rowType), viewSql, schemaPath1, key);
+          RelDataTypeImpl.proto(parsed.rowType), viewSql, schemaPath1, viewPath, key);
     }
   }
 }

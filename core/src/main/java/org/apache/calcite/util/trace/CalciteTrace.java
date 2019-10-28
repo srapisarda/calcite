@@ -31,7 +31,7 @@ import java.io.File;
  * Contains all of the {@link org.slf4j.Logger tracers} used within
  * org.apache.calcite class libraries.
  *
- * <h3>Note to developers</h3>
+ * <h2>Note to developers</h2>
  *
  * <p>Please ensure that every tracer used in org.apache.calcite is added to
  * this class as a <em>public static final</em> member called <code>
@@ -55,13 +55,8 @@ public abstract class CalciteTrace {
    */
   public static final Logger PARSER_LOGGER = getParserTracer();
 
-  private static final ThreadLocal<Function2<Void, File, String>>
-  DYNAMIC_HANDLER =
-      new ThreadLocal<Function2<Void, File, String>>() {
-        @Override protected Function2<Void, File, String> initialValue() {
-          return Functions.ignore2();
-        }
-      };
+  private static final ThreadLocal<Function2<Void, File, String>> DYNAMIC_HANDLER =
+      ThreadLocal.withInitial(Functions::ignore2);
 
   //~ Methods ----------------------------------------------------------------
 

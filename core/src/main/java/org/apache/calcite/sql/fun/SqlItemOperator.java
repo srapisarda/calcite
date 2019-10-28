@@ -18,6 +18,7 @@ package org.apache.calcite.sql.fun;
 
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
+import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.sql.SqlCall;
 import org.apache.calcite.sql.SqlCallBinding;
 import org.apache.calcite.sql.SqlKind;
@@ -26,14 +27,14 @@ import org.apache.calcite.sql.SqlOperandCountRange;
 import org.apache.calcite.sql.SqlOperatorBinding;
 import org.apache.calcite.sql.SqlSpecialOperator;
 import org.apache.calcite.sql.SqlWriter;
-import org.apache.calcite.sql.parser.SqlParserUtil;
+import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.type.OperandTypes;
 import org.apache.calcite.sql.type.SqlOperandCountRanges;
 import org.apache.calcite.sql.type.SqlSingleOperandTypeChecker;
 import org.apache.calcite.sql.type.SqlTypeFamily;
 import org.apache.calcite.sql.type.SqlTypeName;
 
-import java.util.List;
+import java.util.Arrays;
 
 /**
  * The item operator {@code [ ... ]}, used to access a given element of an
@@ -47,26 +48,23 @@ class SqlItemOperator extends SqlSpecialOperator {
           OperandTypes.family(SqlTypeFamily.MAP),
           OperandTypes.family(SqlTypeFamily.ANY));
 
-  public SqlItemOperator() {
-    super("ITEM", SqlKind.OTHER_FUNCTION, 100, true, null, null, null);
+  SqlItemOperator() {
+    super("ITEM", SqlKind.ITEM, 100, true, null, null, null);
   }
 
-  @Override public int reduceExpr(int ordinal, List<Object> list) {
-    SqlNode left = (SqlNode) list.get(ordinal - 1);
-    SqlNode right = (SqlNode) list.get(ordinal + 1);
-    final SqlParserUtil.ToTreeListItem treeListItem =
-        (SqlParserUtil.ToTreeListItem) list.get(ordinal);
-    SqlParserUtil.replaceSublist(
-        list,
-        ordinal - 1,
+  @Override public ReduceResult reduceExpr(int ordinal,
+      TokenSequence list) {
+    SqlNode left = list.node(ordinal - 1);
+    SqlNode right = list.node(ordinal + 1);
+    return new ReduceResult(ordinal - 1,
         ordinal + 2,
         createCall(
-            left.getParserPosition()
-                .plus(right.getParserPosition())
-                .plus(treeListItem.getPos()),
+            SqlParserPos.sum(
+                Arrays.asList(left.getParserPosition(),
+                    right.getParserPosition(),
+                    list.pos(ordinal))),
             left,
             right));
-    return ordinal - 1;
   }
 
   @Override public void unparse(
@@ -90,26 +88,28 @@ class SqlItemOperator extends SqlSpecialOperator {
         throwOnFailure)) {
       return false;
     }
-    final RelDataType operandType = callBinding.getOperandType(0);
-    final SqlSingleOperandTypeChecker checker = getChecker(operandType);
+    final SqlSingleOperandTypeChecker checker = getChecker(callBinding);
     return checker.checkSingleOperandType(callBinding, right, 0,
         throwOnFailure);
   }
 
-  private SqlSingleOperandTypeChecker getChecker(RelDataType operandType) {
+  private SqlSingleOperandTypeChecker getChecker(SqlCallBinding callBinding) {
+    final RelDataType operandType = callBinding.getOperandType(0);
     switch (operandType.getSqlTypeName()) {
     case ARRAY:
       return OperandTypes.family(SqlTypeFamily.INTEGER);
     case MAP:
       return OperandTypes.family(
           operandType.getKeyType().getSqlTypeName().getFamily());
+    case ROW:
+      return OperandTypes.CHARACTER;
     case ANY:
     case DYNAMIC_STAR:
       return OperandTypes.or(
           OperandTypes.family(SqlTypeFamily.INTEGER),
           OperandTypes.family(SqlTypeFamily.CHARACTER));
     default:
-      throw new AssertionError(operandType.getSqlTypeName());
+      throw callBinding.newValidationSignatureError();
     }
   }
 
@@ -128,6 +128,15 @@ class SqlItemOperator extends SqlSpecialOperator {
     case MAP:
       return typeFactory.createTypeWithNullability(operandType.getValueType(),
           true);
+    case ROW:
+      String fieldName = opBinding.getOperandLiteralValue(1, String.class);
+      RelDataTypeField field = operandType.getField(fieldName, false, false);
+      if (field == null) {
+        throw new AssertionError("Cannot infer type of field '"
+            + fieldName + "' within ROW type: " + operandType);
+      } else {
+        return field.getType();
+      }
     case ANY:
     case DYNAMIC_STAR:
       return typeFactory.createTypeWithNullability(

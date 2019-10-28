@@ -18,6 +18,7 @@ package org.apache.calcite.rel.rules;
 
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
+import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.RelFactories;
@@ -39,9 +40,31 @@ import org.apache.calcite.tools.RelBuilderFactory;
  * still have only two inputs.
  */
 public class AggregateUnionAggregateRule extends RelOptRule {
+  /** Instance that matches an {@code Aggregate} as the left input of
+   * {@code Union}. */
+  public static final AggregateUnionAggregateRule AGG_ON_FIRST_INPUT =
+      new AggregateUnionAggregateRule(LogicalAggregate.class, LogicalUnion.class,
+          LogicalAggregate.class, RelNode.class, RelFactories.LOGICAL_BUILDER,
+          "AggregateUnionAggregateRule:first-input-agg");
+
+  /** Instance that matches an {@code Aggregate} as the right input of
+   * {@code Union}. */
+  public static final AggregateUnionAggregateRule AGG_ON_SECOND_INPUT =
+      new AggregateUnionAggregateRule(LogicalAggregate.class, LogicalUnion.class,
+          RelNode.class, LogicalAggregate.class, RelFactories.LOGICAL_BUILDER,
+          "AggregateUnionAggregateRule:second-input-agg");
+
+  /** Instance that matches an {@code Aggregate} as either input of
+   * {@link Union}.
+   *
+   * <p>Because it matches {@link RelNode} for each input of {@code Union}, it
+   * will create O(N ^ 2) matches, which may cost too much during the popMatch
+   * phase in VolcanoPlanner. If efficiency is a concern, we recommend that you
+   * use {@link #AGG_ON_FIRST_INPUT} and {@link #AGG_ON_SECOND_INPUT} instead. */
   public static final AggregateUnionAggregateRule INSTANCE =
       new AggregateUnionAggregateRule(LogicalAggregate.class,
-          LogicalUnion.class, RelFactories.LOGICAL_BUILDER);
+          LogicalUnion.class, RelNode.class, RelNode.class,
+          RelFactories.LOGICAL_BUILDER, "AggregateUnionAggregateRule");
 
   //~ Constructors -----------------------------------------------------------
 
@@ -49,13 +72,17 @@ public class AggregateUnionAggregateRule extends RelOptRule {
    * Creates a AggregateUnionAggregateRule.
    */
   public AggregateUnionAggregateRule(Class<? extends Aggregate> aggregateClass,
-      Class<? extends Union> unionClass, RelBuilderFactory relBuilderFactory) {
+      Class<? extends Union> unionClass,
+      Class<? extends RelNode> firstUnionInputClass,
+      Class<? extends RelNode> secondUnionInputClass,
+      RelBuilderFactory relBuilderFactory,
+      String desc) {
     super(
-        operand(aggregateClass, null, Aggregate.IS_SIMPLE,
+        operandJ(aggregateClass, null, Aggregate::isSimple,
             operand(unionClass,
-                operand(RelNode.class, any()),
-                operand(RelNode.class, any()))),
-        relBuilderFactory, null);
+                operand(firstUnionInputClass, any()),
+                operand(secondUnionInputClass, any()))),
+        relBuilderFactory, desc);
   }
 
   @Deprecated // to be removed before 2.0
@@ -63,11 +90,29 @@ public class AggregateUnionAggregateRule extends RelOptRule {
       RelFactories.AggregateFactory aggregateFactory,
       Class<? extends Union> unionClass,
       RelFactories.SetOpFactory setOpFactory) {
-    this(aggregateClass, unionClass,
-        RelBuilder.proto(aggregateFactory, setOpFactory));
+    this(aggregateClass, unionClass, RelNode.class, RelNode.class,
+        RelBuilder.proto(aggregateFactory, setOpFactory),
+        "AggregateUnionAggregateRule");
   }
 
   //~ Methods ----------------------------------------------------------------
+
+  /**
+   * Returns an input with the same row type with the input Aggregate,
+   * create a Project node if needed.
+   */
+  private RelNode getInputWithSameRowType(Aggregate bottomAggRel) {
+    if (RelOptUtil.areRowTypesEqual(
+            bottomAggRel.getRowType(),
+            bottomAggRel.getInput(0).getRowType(),
+            false)) {
+      return bottomAggRel.getInput(0);
+    } else {
+      return RelOptUtil.createProject(
+          bottomAggRel.getInput(),
+          bottomAggRel.getGroupSet().asList());
+    }
+  }
 
   public void onMatch(RelOptRuleCall call) {
     final Aggregate topAggRel = call.rel(0);
@@ -78,20 +123,17 @@ public class AggregateUnionAggregateRule extends RelOptRule {
       return;
     }
 
-    // We want to apply this rule on the pattern where the LogicalAggregate
-    // is the second input into the Union first.  Hence, that's why the
-    // rule pattern matches on generic RelNodes rather than explicit
-    // UnionRels.  By doing so, and firing this rule in a bottom-up order,
-    // it allows us to only specify a single pattern for this rule.
     final RelBuilder relBuilder = call.builder();
     final Aggregate bottomAggRel;
     if (call.rel(3) instanceof Aggregate) {
+      // Aggregate is the second input
       bottomAggRel = call.rel(3);
       relBuilder.push(call.rel(2))
-          .push(call.rel(3).getInput(0));
+          .push(getInputWithSameRowType(bottomAggRel));
     } else if (call.rel(2) instanceof Aggregate) {
+      // Aggregate is the first input
       bottomAggRel = call.rel(2);
-      relBuilder.push(call.rel(2).getInput(0))
+      relBuilder.push(getInputWithSameRowType(bottomAggRel))
           .push(call.rel(3));
     } else {
       return;
@@ -104,7 +146,8 @@ public class AggregateUnionAggregateRule extends RelOptRule {
     }
 
     relBuilder.union(true);
-    relBuilder.aggregate(relBuilder.groupKey(topAggRel.getGroupSet(), false, null),
+    relBuilder.rename(union.getRowType().getFieldNames());
+    relBuilder.aggregate(relBuilder.groupKey(topAggRel.getGroupSet()),
         topAggRel.getAggCallList());
     call.transformTo(relBuilder.build());
   }

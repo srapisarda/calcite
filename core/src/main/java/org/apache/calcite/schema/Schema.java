@@ -17,6 +17,7 @@
 package org.apache.calcite.schema;
 
 import org.apache.calcite.linq4j.tree.Expression;
+import org.apache.calcite.rel.type.RelProtoDataType;
 
 import java.util.Collection;
 import java.util.Set;
@@ -67,6 +68,21 @@ public interface Schema {
    * @return Names of the tables in this schema
    */
   Set<String> getTableNames();
+
+  /**
+   * Returns a type with a given name, or null if not found.
+   *
+   * @param name Table name
+   * @return Table, or null
+   */
+  RelProtoDataType getType(String name);
+
+  /**
+   * Returns the names of the types in this schema.
+   *
+   * @return Names of the tables in this schema
+   */
+  Set<String> getTypeNames();
 
   /**
    * Returns a list of functions in this schema with the given name, or
@@ -121,26 +137,14 @@ public interface Schema {
    */
   boolean isMutable();
 
-  /** Returns whether the contents of this schema have changed since a given
-   * time. The time is a millisecond value, as returned by
-   * {@link System#currentTimeMillis()}. If this method returns true, and
-   * caching is enabled, Calcite will re-build caches.
+  /** Returns the snapshot of this schema as of the specified time. The
+   * contents of the schema snapshot should not change over time.
    *
-   * <p>The default implementation in
-   * {@link org.apache.calcite.schema.impl.AbstractSchema} always returns
-   * {@code false}.</p>
+   * @param version The current schema version
    *
-   * <p>To control whether Calcite caches the contents of a schema, use the
-   * "cache" JSON attribute. The default value is "true".</p>
-   *
-   * @param lastCheck The last time that Calcite called this method, or
-   *   {@link Long#MIN_VALUE} if this is the first call
-   * @param now The current time in millis, as returned by
-   *   {@link System#currentTimeMillis()}
-   *
-   * @return Whether contents changed after {@code lastCheckMillis}.
+   * @return the schema snapshot.
    */
-  boolean contentsHaveChangedSince(long lastCheck, long now);
+  Schema snapshot(SchemaVersion version);
 
   /** Table type. */
   enum TableType {
@@ -318,11 +322,26 @@ public interface Schema {
      */
     TYPED_VIEW,
 
+    /**
+     * A temporal table.
+     *
+     * <p>Used by MS SQL, Oracle and others
+     */
+    TEMPORAL_TABLE,
+
     /** Table type not known to Calcite.
      *
      * <p>If you get one of these, please fix the problem by adding an enum
      * value. */
-    OTHER,
+    OTHER;
+
+    /** The name used in JDBC. For example "SYSTEM TABLE" rather than
+     * "SYSTEM_TABLE". */
+    public final String jdbcName;
+
+    TableType() {
+      this.jdbcName = name().replace('_', ' ');
+    }
   }
 }
 

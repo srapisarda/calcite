@@ -16,13 +16,16 @@
  */
 package org.apache.calcite.adapter.jdbc;
 
+import org.apache.calcite.DataContext;
 import org.apache.calcite.adapter.enumerable.EnumerableRel;
 import org.apache.calcite.adapter.enumerable.EnumerableRelImplementor;
 import org.apache.calcite.adapter.enumerable.JavaRowFormat;
 import org.apache.calcite.adapter.enumerable.PhysType;
 import org.apache.calcite.adapter.enumerable.PhysTypeImpl;
 import org.apache.calcite.adapter.java.JavaTypeFactory;
+import org.apache.calcite.config.CalciteSystemProperty;
 import org.apache.calcite.linq4j.tree.BlockBuilder;
+import org.apache.calcite.linq4j.tree.ConstantExpression;
 import org.apache.calcite.linq4j.tree.Expression;
 import org.apache.calcite.linq4j.tree.Expressions;
 import org.apache.calcite.linq4j.tree.ParameterExpression;
@@ -33,7 +36,6 @@ import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelOptCost;
 import org.apache.calcite.plan.RelOptPlanner;
 import org.apache.calcite.plan.RelTraitSet;
-import org.apache.calcite.prepare.CalcitePrepareImpl;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.convert.ConverterImpl;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
@@ -43,6 +45,7 @@ import org.apache.calcite.runtime.SqlFunctions;
 import org.apache.calcite.schema.Schemas;
 import org.apache.calcite.sql.SqlDialect;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.sql.util.SqlString;
 import org.apache.calcite.util.BuiltInMethod;
 
 import java.lang.reflect.Method;
@@ -53,6 +56,8 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
 import java.util.TimeZone;
+import java.util.stream.Collectors;
+import javax.sql.DataSource;
 
 /**
  * Relational expression representing a scan of a table in a JDBC data source.
@@ -88,8 +93,9 @@ public class JdbcToEnumerableConverter
             pref.prefer(JavaRowFormat.CUSTOM));
     final JdbcConvention jdbcConvention =
         (JdbcConvention) child.getConvention();
-    String sql = generateSql(jdbcConvention.dialect);
-    if (CalcitePrepareImpl.DEBUG) {
+    SqlString sqlString = generateSql(jdbcConvention.dialect);
+    String sql = sqlString.getSql();
+    if (CalciteSystemProperty.DEBUG.value()) {
       System.out.println("[" + sql + "]");
     }
     Hook.QUERY_PLAN.run(sql);
@@ -100,7 +106,8 @@ public class JdbcToEnumerableConverter
     final ParameterExpression resultSet_ =
         Expressions.parameter(Modifier.FINAL, ResultSet.class,
             builder.newName("resultSet"));
-    CalendarPolicy calendarPolicy = CalendarPolicy.of(jdbcConvention.dialect);
+    final SqlDialect.CalendarPolicy calendarPolicy =
+        jdbcConvention.dialect.getCalendarPolicy();
     final Expression calendar_;
     switch (calendarPolicy) {
     case LOCAL:
@@ -150,20 +157,47 @@ public class JdbcToEnumerableConverter
                                                 RuntimeException.class,
                                                 e_)))))))),
                 resultSet_));
-    final Expression enumerable =
-        builder0.append(
-            "enumerable",
-            Expressions.call(
-                BuiltInMethod.RESULT_SET_ENUMERABLE_OF.method,
-                Expressions.call(
-                    Schemas.unwrap(jdbcConvention.expression,
-                        JdbcSchema.class),
-                    BuiltInMethod.JDBC_SCHEMA_DATA_SOURCE.method),
-                sql_,
-                rowBuilderFactory_));
+
+    final Expression enumerable;
+
+    if (sqlString.getDynamicParameters() != null
+        && !sqlString.getDynamicParameters().isEmpty()) {
+      final Expression preparedStatementConsumer_ =
+          builder0.append("preparedStatementConsumer",
+              Expressions.call(BuiltInMethod.CREATE_ENRICHER.method,
+                  Expressions.newArrayInit(Integer.class, 1,
+                      toIndexesTableExpression(sqlString)),
+                  DataContext.ROOT));
+
+      enumerable = builder0.append("enumerable",
+          Expressions.call(
+              BuiltInMethod.RESULT_SET_ENUMERABLE_OF_PREPARED.method,
+              Schemas.unwrap(jdbcConvention.expression, DataSource.class),
+              sql_,
+              rowBuilderFactory_,
+              preparedStatementConsumer_));
+    } else {
+      enumerable = builder0.append("enumerable",
+          Expressions.call(
+              BuiltInMethod.RESULT_SET_ENUMERABLE_OF.method,
+              Schemas.unwrap(jdbcConvention.expression, DataSource.class),
+              sql_,
+              rowBuilderFactory_));
+    }
+    builder0.add(
+        Expressions.statement(
+            Expressions.call(enumerable,
+                BuiltInMethod.RESULT_SET_ENUMERABLE_SET_TIMEOUT.method,
+                DataContext.ROOT)));
     builder0.add(
         Expressions.return_(null, enumerable));
     return implementor.result(physType, builder0.toBlock());
+  }
+
+  private List<ConstantExpression> toIndexesTableExpression(SqlString sqlString) {
+    return sqlString.getDynamicParameters().stream()
+        .map(Expressions::constant)
+        .collect(Collectors.toList());
   }
 
   private UnaryExpression getTimeZoneExpression(
@@ -179,11 +213,11 @@ public class JdbcToEnumerableConverter
   private void generateGet(EnumerableRelImplementor implementor,
       PhysType physType, BlockBuilder builder, ParameterExpression resultSet_,
       int i, Expression target, Expression calendar_,
-      CalendarPolicy calendarPolicy) {
+      SqlDialect.CalendarPolicy calendarPolicy) {
     final Primitive primitive = Primitive.ofBoxOr(physType.fieldClass(i));
     final RelDataType fieldType =
         physType.getRowType().getFieldList().get(i).getType();
-    final List<Expression> dateTimeArgs = new ArrayList<Expression>();
+    final List<Expression> dateTimeArgs = new ArrayList<>();
     dateTimeArgs.add(Expressions.constant(i + 1));
     SqlTypeName sqlTypeName = fieldType.getSqlTypeName();
     boolean offset = false;
@@ -291,34 +325,13 @@ public class JdbcToEnumerableConverter
         : "get" + SqlFunctions.initcap(primitive.primitiveName);
   }
 
-  private String generateSql(SqlDialect dialect) {
+  private SqlString generateSql(SqlDialect dialect) {
     final JdbcImplementor jdbcImplementor =
         new JdbcImplementor(dialect,
             (JavaTypeFactory) getCluster().getTypeFactory());
     final JdbcImplementor.Result result =
         jdbcImplementor.visitChild(0, getInput());
-    return result.asQuery().toSqlString(dialect).getSql();
-  }
-
-  /** Whether this JDBC driver needs you to pass a Calendar object to methods
-   * such as {@link ResultSet#getTimestamp(int, java.util.Calendar)}. */
-  private enum CalendarPolicy {
-    NONE,
-    NULL,
-    LOCAL,
-    DIRECT,
-    SHIFT;
-
-    static CalendarPolicy of(SqlDialect dialect) {
-      switch (dialect.getDatabaseProduct()) {
-      case MYSQL:
-        return SHIFT;
-      case HSQLDB:
-      default:
-        // NULL works for hsqldb-2.3; nothing worked for hsqldb-1.8.
-        return NULL;
-      }
-    }
+    return result.asStatement().toSqlString(dialect);
   }
 }
 

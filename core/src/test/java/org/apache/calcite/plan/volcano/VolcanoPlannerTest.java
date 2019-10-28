@@ -17,34 +17,25 @@
 package org.apache.calcite.plan.volcano;
 
 import org.apache.calcite.adapter.enumerable.EnumerableConvention;
+import org.apache.calcite.adapter.enumerable.EnumerableRules;
+import org.apache.calcite.adapter.enumerable.EnumerableUnion;
 import org.apache.calcite.plan.Convention;
 import org.apache.calcite.plan.ConventionTraitDef;
 import org.apache.calcite.plan.RelOptCluster;
-import org.apache.calcite.plan.RelOptCost;
 import org.apache.calcite.plan.RelOptListener;
-import org.apache.calcite.plan.RelOptPlanner;
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.plan.RelTraitSet;
-import org.apache.calcite.rel.AbstractRelNode;
+import org.apache.calcite.rel.RelCollationTraitDef;
 import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.rel.RelWriter;
-import org.apache.calcite.rel.SingleRel;
 import org.apache.calcite.rel.convert.ConverterImpl;
 import org.apache.calcite.rel.convert.ConverterRule;
+import org.apache.calcite.rel.core.JoinRelType;
+import org.apache.calcite.rel.core.RelFactories;
 import org.apache.calcite.rel.logical.LogicalProject;
-import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.rules.ProjectRemoveRule;
-import org.apache.calcite.rel.type.RelDataType;
-import org.apache.calcite.rel.type.RelDataTypeFactory;
-import org.apache.calcite.rel.type.RelDataTypeSystem;
-import org.apache.calcite.rex.RexBuilder;
-import org.apache.calcite.rex.RexInputRef;
-import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
-import org.apache.calcite.util.Util;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.calcite.tools.RelBuilder;
 
 import org.junit.Ignore;
 import org.junit.Test;
@@ -53,6 +44,20 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+
+import static org.apache.calcite.plan.volcano.PlannerTests.AssertOperandsDifferentRule;
+import static org.apache.calcite.plan.volcano.PlannerTests.GoodSingleRule;
+import static org.apache.calcite.plan.volcano.PlannerTests.NoneLeafRel;
+import static org.apache.calcite.plan.volcano.PlannerTests.NoneSingleRel;
+import static org.apache.calcite.plan.volcano.PlannerTests.PHYS_CALLING_CONVENTION;
+import static org.apache.calcite.plan.volcano.PlannerTests.PHYS_CALLING_CONVENTION_2;
+import static org.apache.calcite.plan.volcano.PlannerTests.PhysBiRel;
+import static org.apache.calcite.plan.volcano.PlannerTests.PhysLeafRel;
+import static org.apache.calcite.plan.volcano.PlannerTests.PhysLeafRule;
+import static org.apache.calcite.plan.volcano.PlannerTests.PhysSingleRel;
+import static org.apache.calcite.plan.volcano.PlannerTests.TestSingleRel;
+import static org.apache.calcite.plan.volcano.PlannerTests.newCluster;
+import static org.apache.calcite.test.Matchers.isLinux;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertEquals;
@@ -64,30 +69,11 @@ import static org.junit.Assert.assertTrue;
  * Unit test for {@link VolcanoPlanner the optimizer}.
  */
 public class VolcanoPlannerTest {
-  //~ Static fields/initializers ---------------------------------------------
-
-  /**
-   * Private calling convention representing a physical implementation.
-   */
-  private static final Convention PHYS_CALLING_CONVENTION =
-      new Convention.Impl(
-          "PHYS",
-          RelNode.class);
-
-  //~ Constructors -----------------------------------------------------------
 
   public VolcanoPlannerTest() {
   }
 
   //~ Methods ----------------------------------------------------------------
-
-  static RelOptCluster newCluster(VolcanoPlanner planner) {
-    final RelDataTypeFactory typeFactory =
-        new SqlTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
-    return RelOptCluster.create(planner,
-        new RexBuilder(typeFactory));
-  }
-
   /**
    * Tests transformation of a leaf from NONE to PHYS.
    */
@@ -140,6 +126,84 @@ public class VolcanoPlannerTest {
     assertTrue(result instanceof PhysSingleRel);
   }
 
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-3118">[CALCITE-3118]
+   * VolcanoRuleCall should look at RelSubset rather than RelSet
+   * when checking child ordinal of a parent operand</a>. */
+  @Test public void testMatchedOperandsDifferent() {
+    VolcanoPlanner planner = new VolcanoPlanner();
+    planner.addRelTraitDef(ConventionTraitDef.INSTANCE);
+    RelOptCluster cluster = newCluster(planner);
+
+    // The rule that triggers the assert rule
+    planner.addRule(new PhysLeafRule());
+
+    // The rule asserting that the matched operands are different
+    planner.addRule(new AssertOperandsDifferentRule());
+
+    // Construct two children in the same set and a parent RelNode
+    NoneLeafRel leftRel = new NoneLeafRel(cluster, "a");
+    RelNode leftPhy = planner
+        .changeTraits(leftRel, cluster.traitSetOf(PHYS_CALLING_CONVENTION));
+    PhysLeafRel rightPhy =
+        new PhysLeafRel(cluster, PHYS_CALLING_CONVENTION_2, "b");
+
+    PhysBiRel parent =
+        new PhysBiRel(cluster, cluster.traitSetOf(PHYS_CALLING_CONVENTION),
+            leftPhy, rightPhy);
+    planner.setRoot(parent);
+
+    // Make sure both RelNodes are in the same set, but different subset
+    planner.ensureRegistered(leftPhy, rightPhy);
+
+    planner.chooseDelegate().findBestExp();
+  }
+
+  /**
+   * A pattern that matches a three input union with third child matching for
+   * a PhysLeafRel node.
+   */
+  static class ThreeInputsUnionRule extends RelOptRule {
+    ThreeInputsUnionRule() {
+      super(
+          operand(EnumerableUnion.class,
+              some(
+                  operand(PhysBiRel.class, any()),
+                  operand(PhysBiRel.class, any()),
+                  operand(PhysLeafRel.class, any()))));
+    }
+
+    public void onMatch(RelOptRuleCall call) {
+    }
+  }
+
+  @Test public void testMultiInputsParentOpMatching() {
+    VolcanoPlanner planner = new VolcanoPlanner();
+    planner.addRelTraitDef(ConventionTraitDef.INSTANCE);
+    RelOptCluster cluster = newCluster(planner);
+
+    // The trigger rule that generates PhysLeafRel from NoneLeafRel
+    planner.addRule(new PhysLeafRule());
+
+    // The rule with third child op matching PhysLeafRel, which should not be
+    // matched at all
+    planner.addRule(new ThreeInputsUnionRule());
+
+    // Construct a union with only two children
+    NoneLeafRel leftRel = new NoneLeafRel(cluster, "b");
+    RelNode leftPhy = planner
+        .changeTraits(leftRel, cluster.traitSetOf(PHYS_CALLING_CONVENTION));
+    PhysLeafRel rightPhy =
+        new PhysLeafRel(cluster, PHYS_CALLING_CONVENTION, "b");
+
+    planner.setRoot(
+        new EnumerableUnion(cluster,
+            cluster.traitSetOf(PHYS_CALLING_CONVENTION),
+            Arrays.asList(leftPhy, rightPhy), false));
+
+    planner.chooseDelegate().findBestExp();
+  }
+
   /**
    * Tests a rule that is fired once per subset (whereas most rules are fired
    * once per rel in a set or rel in a subset)
@@ -173,7 +237,6 @@ public class VolcanoPlannerTest {
         equalTo(
             sort(
                 "NoneSingleRel:Subset#0.NONE",
-                "PhysSingleRel:Subset#0.NONE",
                 "PhysSingleRel:Subset#0.PHYS")));
   }
 
@@ -249,12 +312,12 @@ public class VolcanoPlannerTest {
         new PhysLeafRel(
             cluster,
             "a");
-    RexInputRef inputRef = RexInputRef.of(0, leafRel.getRowType());
+    final RelBuilder relBuilder =
+        RelFactories.LOGICAL_BUILDER.create(leafRel.getCluster(), null);
     RelNode projectRel =
-        RelOptUtil.createProject(
-            leafRel,
-            ImmutableList.of(inputRef),
-            ImmutableList.of("this"));
+        relBuilder.push(leafRel)
+            .project(relBuilder.alias(relBuilder.field(0), "this"))
+            .build();
     NoneSingleRel singleRel =
         new NoneSingleRel(
             cluster,
@@ -311,7 +374,7 @@ public class VolcanoPlannerTest {
     PhysLeafRel resultLeaf = (PhysLeafRel) result;
     assertEquals(
         "c",
-        resultLeaf.getLabel());
+        resultLeaf.label);
   }
 
   /**
@@ -347,7 +410,45 @@ public class VolcanoPlannerTest {
     PhysLeafRel resultLeaf = (PhysLeafRel) result;
     assertEquals(
         "c",
-        resultLeaf.getLabel());
+        resultLeaf.label);
+  }
+
+  @Ignore("CALCITE-2592 EnumerableMergeJoin is never taken")
+  @Test public void testMergeJoin() {
+    VolcanoPlanner planner = new VolcanoPlanner();
+    planner.addRelTraitDef(ConventionTraitDef.INSTANCE);
+
+    // Below two lines are important for the planner to use collation trait and generate merge join
+    planner.addRelTraitDef(RelCollationTraitDef.INSTANCE);
+    planner.registerAbstractRelationalRules();
+
+    planner.addRule(EnumerableRules.ENUMERABLE_MERGE_JOIN_RULE);
+    planner.addRule(EnumerableRules.ENUMERABLE_VALUES_RULE);
+    planner.addRule(EnumerableRules.ENUMERABLE_SORT_RULE);
+
+    RelOptCluster cluster = newCluster(planner);
+
+    RelBuilder relBuilder = RelFactories.LOGICAL_BUILDER.create(cluster, null);
+    RelNode logicalPlan = relBuilder
+        .values(new String[]{"id", "name"}, "2", "a", "1", "b")
+        .values(new String[]{"id", "name"}, "1", "x", "2", "y")
+        .join(JoinRelType.INNER, "id")
+        .build();
+
+    RelTraitSet desiredTraits =
+        cluster.traitSet().replace(EnumerableConvention.INSTANCE);
+    final RelNode newRoot = planner.changeTraits(logicalPlan, desiredTraits);
+    planner.setRoot(newRoot);
+
+    RelNode bestExp = planner.findBestExp();
+
+    final String plan = ""
+        + "EnumerableMergeJoin(condition=[=($0, $2)], joinType=[inner])\n"
+        + "  EnumerableSort(sort0=[$0], dir0=[ASC])\n"
+        + "    EnumerableValues(tuples=[[{ '2', 'a' }, { '1', 'b' }]])\n"
+        + "  EnumerableValues(tuples=[[{ '1', 'x' }, { '2', 'y' }]])\n";
+    assertThat("Merge join + sort is expected", plan,
+        isLinux(RelOptUtil.toString(bestExp)));
   }
 
   /**
@@ -479,152 +580,9 @@ public class VolcanoPlannerTest {
 
   //~ Inner Classes ----------------------------------------------------------
 
-  /** Leaf relational expression. */
-  private abstract static class TestLeafRel extends AbstractRelNode {
-    private String label;
-
-    protected TestLeafRel(
-        RelOptCluster cluster,
-        RelTraitSet traits,
-        String label) {
-      super(cluster, traits);
-      this.label = label;
-    }
-
-    public String getLabel() {
-      return label;
-    }
-
-    // implement RelNode
-    public RelOptCost computeSelfCost(RelOptPlanner planner,
-        RelMetadataQuery mq) {
-      return planner.getCostFactory().makeInfiniteCost();
-    }
-
-    // implement RelNode
-    protected RelDataType deriveRowType() {
-      final RelDataTypeFactory typeFactory = getCluster().getTypeFactory();
-      return typeFactory.builder()
-          .add("this", typeFactory.createJavaType(Void.TYPE))
-          .build();
-    }
-
-    public RelWriter explainTerms(RelWriter pw) {
-      return super.explainTerms(pw)
-          .item("label", label);
-    }
-  }
-
-  /** Relational expression with one input. */
-  private abstract static class TestSingleRel extends SingleRel {
-    protected TestSingleRel(
-        RelOptCluster cluster,
-        RelTraitSet traits,
-        RelNode child) {
-      super(cluster, traits, child);
-    }
-
-    // implement RelNode
-    public RelOptCost computeSelfCost(RelOptPlanner planner,
-        RelMetadataQuery mq) {
-      return planner.getCostFactory().makeInfiniteCost();
-    }
-
-    // implement RelNode
-    protected RelDataType deriveRowType() {
-      return getInput().getRowType();
-    }
-  }
-
-  /** Relational expression with one input and convention NONE. */
-  private static class NoneSingleRel extends TestSingleRel {
-    protected NoneSingleRel(
-        RelOptCluster cluster,
-        RelNode child) {
-      super(
-          cluster,
-          cluster.traitSetOf(Convention.NONE),
-          child);
-    }
-
-    public RelNode copy(RelTraitSet traitSet, List<RelNode> inputs) {
-      assert traitSet.comprises(Convention.NONE);
-      return new NoneSingleRel(
-          getCluster(),
-          sole(inputs));
-    }
-  }
-
-  /** Relational expression with zero inputs and convention NONE. */
-  private static class NoneLeafRel extends TestLeafRel {
-    protected NoneLeafRel(
-        RelOptCluster cluster,
-        String label) {
-      super(
-          cluster,
-          cluster.traitSetOf(Convention.NONE),
-          label);
-    }
-
-    public RelNode copy(RelTraitSet traitSet, List<RelNode> inputs) {
-      assert traitSet.comprises(Convention.NONE);
-      assert inputs.isEmpty();
-      return this;
-    }
-  }
-
-  /** Relational expression with zero inputs and convention PHYS. */
-  private static class PhysLeafRel extends TestLeafRel {
-    PhysLeafRel(
-        RelOptCluster cluster,
-        String label) {
-      super(
-          cluster,
-          cluster.traitSetOf(PHYS_CALLING_CONVENTION),
-          label);
-    }
-
-    // implement RelNode
-    public RelOptCost computeSelfCost(RelOptPlanner planner,
-        RelMetadataQuery mq) {
-      return planner.getCostFactory().makeTinyCost();
-    }
-
-    public RelNode copy(RelTraitSet traitSet, List<RelNode> inputs) {
-      assert traitSet.comprises(PHYS_CALLING_CONVENTION);
-      assert inputs.isEmpty();
-      return this;
-    }
-  }
-
-  /** Relational expression with one input and convention PHYS. */
-  private static class PhysSingleRel extends TestSingleRel {
-    PhysSingleRel(
-        RelOptCluster cluster,
-        RelNode child) {
-      super(
-          cluster,
-          cluster.traitSetOf(PHYS_CALLING_CONVENTION),
-          child);
-    }
-
-    // implement RelNode
-    public RelOptCost computeSelfCost(RelOptPlanner planner,
-        RelMetadataQuery mq) {
-      return planner.getCostFactory().makeTinyCost();
-    }
-
-    public RelNode copy(RelTraitSet traitSet, List<RelNode> inputs) {
-      assert traitSet.comprises(PHYS_CALLING_CONVENTION);
-      return new PhysSingleRel(
-          getCluster(),
-          sole(inputs));
-    }
-  }
-
   /** Converter from PHYS to ENUMERABLE convention. */
   class PhysToIteratorConverter extends ConverterImpl {
-    public PhysToIteratorConverter(
+    PhysToIteratorConverter(
         RelOptCluster cluster,
         RelNode child) {
       super(
@@ -639,54 +597,6 @@ public class VolcanoPlannerTest {
       return new PhysToIteratorConverter(
           getCluster(),
           sole(inputs));
-    }
-  }
-
-  /** Planner rule that converts {@link NoneLeafRel} to PHYS
-   * convention. */
-  private static class PhysLeafRule extends RelOptRule {
-    PhysLeafRule() {
-      super(operand(NoneLeafRel.class, any()));
-    }
-
-    // implement RelOptRule
-    public Convention getOutConvention() {
-      return PHYS_CALLING_CONVENTION;
-    }
-
-    // implement RelOptRule
-    public void onMatch(RelOptRuleCall call) {
-      NoneLeafRel leafRel = call.rel(0);
-      call.transformTo(
-          new PhysLeafRel(
-              leafRel.getCluster(),
-              leafRel.getLabel()));
-    }
-  }
-
-  /** Planner rule that matches a {@link NoneSingleRel} and succeeds. */
-  private static class GoodSingleRule extends RelOptRule {
-    GoodSingleRule() {
-      super(operand(NoneSingleRel.class, any()));
-    }
-
-    // implement RelOptRule
-    public Convention getOutConvention() {
-      return PHYS_CALLING_CONVENTION;
-    }
-
-    // implement RelOptRule
-    public void onMatch(RelOptRuleCall call) {
-      NoneSingleRel singleRel = call.rel(0);
-      RelNode childRel = singleRel.getInput();
-      RelNode physInput =
-          convert(
-              childRel,
-              singleRel.getTraitSet().replace(PHYS_CALLING_CONVENTION));
-      call.transformTo(
-          new PhysSingleRel(
-              singleRel.getCluster(),
-              physInput));
     }
   }
 
@@ -730,12 +640,10 @@ public class VolcanoPlannerTest {
               operand(PhysLeafRel.class, any())));
     }
 
-    // implement RelOptRule
-    public Convention getOutConvention() {
+    @Override public Convention getOutConvention() {
       return PHYS_CALLING_CONVENTION;
     }
 
-    // implement RelOptRule
     public void onMatch(RelOptRuleCall call) {
       NoneSingleRel singleRel = call.rel(0);
       RelNode childRel = call.rel(1);
@@ -756,12 +664,10 @@ public class VolcanoPlannerTest {
       super(operand(LogicalProject.class, any()));
     }
 
-    // implement RelOptRule
-    public Convention getOutConvention() {
+    @Override public Convention getOutConvention() {
       return PHYS_CALLING_CONVENTION;
     }
 
-    // implement RelOptRule
     public void onMatch(RelOptRuleCall call) {
       final LogicalProject project = call.rel(0);
       RelNode childRel = project.getInput();
@@ -781,12 +687,10 @@ public class VolcanoPlannerTest {
               operand(PhysLeafRel.class, any())));
     }
 
-    // implement RelOptRule
-    public Convention getOutConvention() {
+    @Override public Convention getOutConvention() {
       return PHYS_CALLING_CONVENTION;
     }
 
-    // implement RelOptRule
     public void onMatch(RelOptRuleCall call) {
       PhysSingleRel singleRel = call.rel(0);
       PhysLeafRel leafRel = call.rel(1);
@@ -806,12 +710,10 @@ public class VolcanoPlannerTest {
               operand(PhysLeafRel.class, any())));
     }
 
-    // implement RelOptRule
     public Convention getOutConvention() {
       return PHYS_CALLING_CONVENTION;
     }
 
-    // implement RelOptRule
     public void onMatch(RelOptRuleCall call) {
       NoneSingleRel singleRel = call.rel(0);
       PhysLeafRel leafRel = call.rel(1);
@@ -838,18 +740,15 @@ public class VolcanoPlannerTest {
       eventList.add(event);
     }
 
-    // implement RelOptListener
     public void relChosen(RelChosenEvent event) {
       recordEvent(event);
     }
 
-    // implement RelOptListener
     public void relDiscarded(RelDiscardedEvent event) {
-      // Volcano is quite a packrat--it never discards anything!
-      throw Util.newInternal(event.toString());
+      // Volcano is quite a pack rat--it never discards anything!
+      throw new AssertionError(event);
     }
 
-    // implement RelOptListener
     public void relEquivalenceFound(RelEquivalenceEvent event) {
       if (!event.isPhysical()) {
         return;
@@ -857,12 +756,10 @@ public class VolcanoPlannerTest {
       recordEvent(event);
     }
 
-    // implement RelOptListener
     public void ruleAttempted(RuleAttemptedEvent event) {
       recordEvent(event);
     }
 
-    // implement RelOptListener
     public void ruleProductionSucceeded(RuleProductionEvent event) {
       recordEvent(event);
     }

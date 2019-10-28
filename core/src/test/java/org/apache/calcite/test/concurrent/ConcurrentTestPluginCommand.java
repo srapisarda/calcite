@@ -53,8 +53,8 @@ public interface ConcurrentTestPluginCommand {
    * Implement this method to extend functionality of mtsql.
    *
    * @param testContext Exposed context for plugin to run in.
-   * @throws IOException
    */
   void execute(TestContext testContext) throws IOException;
 }
+
 // End ConcurrentTestPluginCommand.java

@@ -57,14 +57,14 @@ public class SqlWindow extends SqlCall {
   /**
    * The FOLLOWING operator used exclusively in a window specification.
    */
-  static final SqlPostfixOperator FOLLOWING_OPERATOR =
+  public static final SqlPostfixOperator FOLLOWING_OPERATOR =
       new SqlPostfixOperator("FOLLOWING", SqlKind.FOLLOWING, 20,
           ReturnTypes.ARG0, null,
           null);
   /**
    * The PRECEDING operator used exclusively in a window specification.
    */
-  static final SqlPostfixOperator PRECEDING_OPERATOR =
+  public static final SqlPostfixOperator PRECEDING_OPERATOR =
       new SqlPostfixOperator("PRECEDING", SqlKind.PRECEDING, 20,
           ReturnTypes.ARG0, null,
           null);
@@ -260,8 +260,16 @@ public class SqlWindow extends SqlCall {
     return orderList;
   }
 
+  public void setOrderList(SqlNodeList orderList) {
+    this.orderList = orderList;
+  }
+
   public SqlNodeList getPartitionList() {
     return partitionList;
+  }
+
+  public void setPartitionList(SqlNodeList partitionList) {
+    this.partitionList = partitionList;
   }
 
   public SqlIdentifier getRefName() {
@@ -386,13 +394,13 @@ public class SqlWindow extends SqlCall {
    *
    * <p>For example,
    *
-   * <pre>WINDOW (w PARTITION BY x ORDER BY y)
+   * <blockquote><pre>WINDOW (w PARTITION BY x ORDER BY y)
    *   overlay
-   *   WINDOW w AS (PARTITION BY z)</pre>
+   *   WINDOW w AS (PARTITION BY z)</pre></blockquote>
    *
-   * yields
+   * <p>yields
    *
-   * <pre>WINDOW (PARTITION BY z ORDER BY y)</pre>
+   * <blockquote><pre>WINDOW (PARTITION BY z ORDER BY y)</pre></blockquote>
    *
    * <p>Does not alter this or the other window.
    *
@@ -698,7 +706,7 @@ public class SqlWindow extends SqlCall {
       }
       break;
     default:
-      throw Util.newInternal("Unexpected node type");
+      throw new AssertionError("Unexpected node type");
     }
   }
 

@@ -22,6 +22,7 @@ import org.apache.calcite.plan.RelOptSchema;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.RelCollation;
+import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelDistribution;
 import org.apache.calcite.rel.RelInput;
 import org.apache.calcite.rel.RelNode;
@@ -36,6 +37,7 @@ import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.Util;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
@@ -46,6 +48,7 @@ import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -74,11 +77,12 @@ public class RelJsonReader {
   public RelNode read(String s) throws IOException {
     lastRel = null;
     final ObjectMapper mapper = new ObjectMapper();
-    Map<String, Object> o = mapper.readValue(s, TYPE_REF);
+    Map<String, Object> o = mapper
+        .configure(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS, true)
+        .readValue(s, TYPE_REF);
     @SuppressWarnings("unchecked")
     final List<Map<String, Object>> rels = (List) o.get("rels");
     readRels(rels);
-    System.out.println(lastRel);
     return lastRel;
   }
 
@@ -165,7 +169,7 @@ public class RelJsonReader {
         final List<Map<String, Object>> jsonAggs = (List) jsonRel.get(tag);
         final List<AggregateCall> inputs = new ArrayList<>();
         for (Map<String, Object> jsonAggCall : jsonAggs) {
-          inputs.add(toAggCall(jsonAggCall));
+          inputs.add(toAggCall(this, jsonAggCall));
         }
         return inputs;
       }
@@ -188,7 +192,8 @@ public class RelJsonReader {
       }
 
       public <E extends Enum<E>> E getEnum(String tag, Class<E> enumClass) {
-        return Util.enumVal(enumClass, getString(tag).toUpperCase());
+        return Util.enumVal(enumClass,
+            getString(tag).toUpperCase(Locale.ROOT));
       }
 
       public List<RexNode> getExpressionList(String tag) {
@@ -267,18 +272,21 @@ public class RelJsonReader {
     }
   }
 
-  private AggregateCall toAggCall(Map<String, Object> jsonAggCall) {
-    final String aggName = (String) jsonAggCall.get("agg");
+  private AggregateCall toAggCall(RelInput relInput, Map<String, Object> jsonAggCall) {
+    final Map<String, Object> aggMap = (Map) jsonAggCall.get("agg");
     final SqlAggFunction aggregation =
-        relJson.toAggregation(aggName, jsonAggCall);
+        relJson.toAggregation(relInput, (String) aggMap.get("name"), aggMap);
     final Boolean distinct = (Boolean) jsonAggCall.get("distinct");
     @SuppressWarnings("unchecked")
     final List<Integer> operands = (List<Integer>) jsonAggCall.get("operands");
     final Integer filterOperand = (Integer) jsonAggCall.get("filter");
     final RelDataType type =
         relJson.toType(cluster.getTypeFactory(), jsonAggCall.get("type"));
-    return AggregateCall.create(aggregation, distinct, operands,
-        filterOperand == null ? -1 : filterOperand, type, null);
+    final String name = (String) jsonAggCall.get("name");
+    return AggregateCall.create(aggregation, distinct, false, false, operands,
+        filterOperand == null ? -1 : filterOperand,
+        RelCollations.EMPTY,
+        type, name);
   }
 
   private RelNode lookupInput(String jsonInput) {

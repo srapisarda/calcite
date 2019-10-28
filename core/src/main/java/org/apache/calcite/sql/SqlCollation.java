@@ -16,8 +16,9 @@
  */
 package org.apache.calcite.sql;
 
+import org.apache.calcite.config.CalciteSystemProperty;
 import org.apache.calcite.sql.parser.SqlParserUtil;
-import org.apache.calcite.util.SaffronProperties;
+import org.apache.calcite.util.Glossary;
 import org.apache.calcite.util.SerializableCharset;
 import org.apache.calcite.util.Util;
 
@@ -50,7 +51,7 @@ public class SqlCollation implements Serializable {
    * coercibility characteristic Explicit, with the collating sequence
    * specified in the &lt;collate clause&gt;.</blockquote>
    *
-   * @sql.99 Part 2 Section 4.2.3
+   * @see Glossary#SQL99 SQL:1999 Part 2 Section 4.2.3
    */
   public enum Coercibility {
     /** Strongest coercibility. */
@@ -87,7 +88,8 @@ public class SqlCollation implements Serializable {
     this.wrappedCharset = SerializableCharset.forCharset(charset);
     locale = parseValues.getLocale();
     strength = parseValues.getStrength();
-    String c = charset.name().toUpperCase() + "$" + locale.toString();
+    String c =
+        charset.name().toUpperCase(Locale.ROOT) + "$" + locale.toString();
     if ((strength != null) && (strength.length() > 0)) {
       c += "$" + strength;
     }
@@ -102,7 +104,7 @@ public class SqlCollation implements Serializable {
    */
   public SqlCollation(Coercibility coercibility) {
     this(
-        SaffronProperties.instance().defaultCollation.get(),
+        CalciteSystemProperty.DEFAULT_COLLATION.value(),
         coercibility);
   }
 
@@ -127,7 +129,7 @@ public class SqlCollation implements Serializable {
    * @return the resulting collation sequence. The "no collating sequence"
    * result is returned as null.
    *
-   * @sql.99 Part 2 Section 4.2.3 Table 2
+   * @see Glossary#SQL99 SQL:1999 Part 2 Section 4.2.3 Table 2
    */
   public static SqlCollation getCoercibilityDyadicOperator(
       SqlCollation col1,
@@ -143,12 +145,12 @@ public class SqlCollation implements Serializable {
    * @param col2 second operand for the dyadic operation
    * @return the resulting collation sequence
    *
-   * @throws org.apache.calcite.runtime.CalciteException
+   * @throws org.apache.calcite.runtime.CalciteException from
    *   {@link org.apache.calcite.runtime.CalciteResource#invalidCompare} or
    *   {@link org.apache.calcite.runtime.CalciteResource#differentCollations}
    *   if no collating sequence can be deduced
    *
-   * @sql.99 Part 2 Section 4.2.3 Table 2
+   * @see Glossary#SQL99 SQL:1999 Part 2 Section 4.2.3 Table 2
    */
   public static SqlCollation getCoercibilityDyadicOperatorThrows(
       SqlCollation col1,
@@ -175,7 +177,7 @@ public class SqlCollation implements Serializable {
    * sequence could be deduced throws a
    * {@link org.apache.calcite.runtime.CalciteResource#invalidCompare}
    *
-   * @sql.99 Part 2 Section 4.2.3 Table 3
+   * @see Glossary#SQL99 SQL:1999 Part 2 Section 4.2.3 Table 3
    */
   public static String getCoercibilityDyadicComparison(
       SqlCollation col1,
@@ -198,41 +200,29 @@ public class SqlCollation implements Serializable {
     case COERCIBLE:
       switch (coercibility2) {
       case COERCIBLE:
-        return new SqlCollation(
-            col2.collationName,
-            Coercibility.COERCIBLE);
+        return col2;
       case IMPLICIT:
-        return new SqlCollation(
-            col2.collationName,
-            Coercibility.IMPLICIT);
+        return col2;
       case NONE:
         return null;
       case EXPLICIT:
-        return new SqlCollation(
-            col2.collationName,
-            Coercibility.EXPLICIT);
+        return col2;
       default:
         throw Util.unexpected(coercibility2);
       }
     case IMPLICIT:
       switch (coercibility2) {
       case COERCIBLE:
-        return new SqlCollation(
-            col1.collationName,
-            Coercibility.IMPLICIT);
+        return col1;
       case IMPLICIT:
         if (col1.collationName.equals(col2.collationName)) {
-          return new SqlCollation(
-              col2.collationName,
-              Coercibility.IMPLICIT);
+          return col2;
         }
         return null;
       case NONE:
         return null;
       case EXPLICIT:
-        return new SqlCollation(
-            col2.collationName,
-            Coercibility.EXPLICIT);
+        return col2;
       default:
         throw Util.unexpected(coercibility2);
       }
@@ -243,9 +233,7 @@ public class SqlCollation implements Serializable {
       case NONE:
         return null;
       case EXPLICIT:
-        return new SqlCollation(
-            col2.collationName,
-            Coercibility.EXPLICIT);
+        return col2;
       default:
         throw Util.unexpected(coercibility2);
       }
@@ -254,14 +242,10 @@ public class SqlCollation implements Serializable {
       case COERCIBLE:
       case IMPLICIT:
       case NONE:
-        return new SqlCollation(
-            col1.collationName,
-            Coercibility.EXPLICIT);
+        return col1;
       case EXPLICIT:
         if (col1.collationName.equals(col2.collationName)) {
-          return new SqlCollation(
-              col2.collationName,
-              Coercibility.EXPLICIT);
+          return col2;
         }
         throw RESOURCE.differentCollations(
             col1.collationName,
@@ -279,11 +263,9 @@ public class SqlCollation implements Serializable {
   }
 
   public void unparse(
-      SqlWriter writer,
-      int leftPrec,
-      int rightPrec) {
+      SqlWriter writer) {
     writer.keyword("COLLATE");
-    writer.identifier(collationName);
+    writer.identifier(collationName, false);
   }
 
   public Charset getCharset() {

@@ -55,8 +55,8 @@ public abstract class JsonSchema {
    *
    * <blockquote><pre>path: [ ['usr', 'lib'], 'lib' ]</pre></blockquote>
    *
-   * <p>declares a path with two elements: the schema ‘/usr/lib’ and the schema
-   * ‘/lib’. Most schemas are at the top level, and for these you can use a
+   * <p>declares a path with two elements: the schema '/usr/lib' and the schema
+   * '/lib'. Most schemas are at the top level, and for these you can use a
    * string.
    */
   public List<Object> path;
@@ -80,18 +80,17 @@ public abstract class JsonSchema {
    * <p>If {@code true}, Calcite will cache the metadata the first time it reads
    * it. This can lead to better performance, especially if name-matching is
    * case-insensitive
-   * (see {@link org.apache.calcite.config.Lex#caseSensitive}).
-   * However, it also leads to the problem of cache staleness.
-   * A particular schema implementation can override the
-   * {@link org.apache.calcite.schema.Schema#contentsHaveChangedSince(long, long)}
-   * method to tell Calcite when it should consider its cache to be out of
-   * date.</p>
+   * (see {@link org.apache.calcite.config.Lex#caseSensitive}).</p>
    *
    * <p>Tables, functions and sub-schemas explicitly created in a schema are
    * not affected by this caching mechanism. They always appear in the schema
    * immediately, and are never flushed.</p>
    */
   public Boolean cache;
+
+  /** Whether to create lattices in this schema based on queries occurring in
+   * other schemas. Default value is {@code false}. */
+  public Boolean autoLattice;
 
   public abstract void accept(ModelHandler handler);
 
@@ -106,7 +105,6 @@ public abstract class JsonSchema {
 
   /** Built-in schema types. */
   public enum Type {
-    NONE,
     MAP,
     JDBC,
     CUSTOM

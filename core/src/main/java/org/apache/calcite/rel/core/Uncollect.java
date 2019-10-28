@@ -27,7 +27,6 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.sql.SqlUnnestOperator;
-import org.apache.calcite.sql.SqlUtil;
 import org.apache.calcite.sql.type.MapSqlType;
 import org.apache.calcite.sql.type.SqlTypeName;
 
@@ -123,8 +122,19 @@ public class Uncollect extends SingleRel {
     RelDataType inputType = rel.getRowType();
     assert inputType.isStruct() : inputType + " is not a struct";
     final List<RelDataTypeField> fields = inputType.getFieldList();
-    final RelDataTypeFactory.FieldInfoBuilder builder =
-        rel.getCluster().getTypeFactory().builder();
+    final RelDataTypeFactory typeFactory = rel.getCluster().getTypeFactory();
+    final RelDataTypeFactory.Builder builder = typeFactory.builder();
+
+    if (fields.size() == 1
+        && fields.get(0).getType().getSqlTypeName() == SqlTypeName.ANY) {
+      // Component type is unknown to Uncollect, build a row type with input column name
+      // and Any type.
+      return builder
+          .add(fields.get(0).getName(), SqlTypeName.ANY)
+          .nullable(true)
+          .build();
+    }
+
     for (RelDataTypeField field : fields) {
       if (field.getType() instanceof MapSqlType) {
         builder.add(SqlUnnestOperator.MAP_KEY_COLUMN_NAME, field.getType().getKeyType());
@@ -135,9 +145,8 @@ public class Uncollect extends SingleRel {
         if (ret.isStruct()) {
           builder.addAll(ret.getFieldList());
         } else {
-          // Element type is not a record. It may be a scalar type, say
-          // "INTEGER". Wrap it in a struct type.
-          builder.add(SqlUtil.deriveAliasFromOrdinal(field.getIndex()), ret);
+          // Element type is not a record, use the field name of the element directly
+          builder.add(field.getName(), ret);
         }
       }
     }

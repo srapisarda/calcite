@@ -16,16 +16,14 @@
  */
 package org.apache.calcite.adapter.csv;
 
-import org.apache.calcite.schema.Statistic;
-import org.apache.calcite.schema.Statistics;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractSchema;
+import org.apache.calcite.util.Source;
+import org.apache.calcite.util.Sources;
 
 import com.google.common.collect.ImmutableMap;
 
 import java.io.File;
-import java.io.FilenameFilter;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -33,8 +31,9 @@ import java.util.Map;
  * is a CSV file in that directory.
  */
 public class CsvSchema extends AbstractSchema {
-  final File directoryFile;
+  private final File directoryFile;
   private final CsvTable.Flavor flavor;
+  private Map<String, Table> tableMap;
 
   /**
    * Creates a CSV schema.
@@ -43,7 +42,7 @@ public class CsvSchema extends AbstractSchema {
    * @param flavor     Whether to instantiate flavor tables that undergo
    *                   query optimization
    */
-  public CsvSchema(File directoryFile, CsvTable.Flavor flavor, List<Statistic> tableStatistics) {
+  public CsvSchema(File directoryFile, CsvTable.Flavor flavor) {
     super();
     this.directoryFile = directoryFile;
     this.flavor = flavor;
@@ -67,16 +66,21 @@ public class CsvSchema extends AbstractSchema {
   }
 
   @Override protected Map<String, Table> getTableMap() {
+    if (tableMap == null) {
+      tableMap = createTableMap();
+    }
+    return tableMap;
+  }
+
+  private Map<String, Table> createTableMap() {
     // Look for files in the directory ending in ".csv", ".csv.gz", ".json",
     // ".json.gz".
-    File[] files = directoryFile.listFiles(
-        new FilenameFilter() {
-          public boolean accept(File dir, String name) {
-            final String nameSansGz = trim(name, ".gz");
-            return nameSansGz.endsWith(".csv")
-                || nameSansGz.endsWith(".json");
-          }
-        });
+    final Source baseSource = Sources.of(directoryFile);
+    File[] files = directoryFile.listFiles((dir, name) -> {
+      final String nameSansGz = trim(name, ".gz");
+      return nameSansGz.endsWith(".csv")
+          || nameSansGz.endsWith(".json");
+    });
     if (files == null) {
       System.out.println("directory " + directoryFile + " not found");
       files = new File[0];
@@ -84,32 +88,33 @@ public class CsvSchema extends AbstractSchema {
     // Build a map from table name to table; each file becomes a table.
     final ImmutableMap.Builder<String, Table> builder = ImmutableMap.builder();
     for (File file : files) {
-      String tableName = trim(file.getName(), ".gz");
-      final String tableNameSansJson = trimOrNull(tableName, ".json");
-      if (tableNameSansJson != null) {
-        JsonTable table = new JsonTable(file);
-        builder.put(tableNameSansJson, table);
-        continue;
+      Source source = Sources.of(file);
+      Source sourceSansGz = source.trim(".gz");
+      final Source sourceSansJson = sourceSansGz.trimOrNull(".json");
+      if (sourceSansJson != null) {
+        final Table table = new JsonScannableTable(source);
+        builder.put(sourceSansJson.relative(baseSource).path(), table);
       }
-      tableName = trim(tableName, ".csv");
-
-      final Table table = createTable(file);
-      builder.put(tableName, table);
+      final Source sourceSansCsv = sourceSansGz.trimOrNull(".csv");
+      if (sourceSansCsv != null) {
+        final Table table = createTable(source);
+        builder.put(sourceSansCsv.relative(baseSource).path(), table);
+      }
     }
     return builder.build();
   }
 
   /** Creates different sub-type of table based on the "flavor" attribute. */
-  private Table createTable(File file) {
+  private Table createTable(Source source) {
     switch (flavor) {
     case TRANSLATABLE:
-      return new CsvTranslatableTable(file, null);
+      return new CsvTranslatableTable(source, null);
     case SCANNABLE:
-      return new CsvScannableTable(file, null);
+      return new CsvScannableTable(source, null);
     case FILTERABLE:
-      return new CsvFilterableTable(file, null, Statistics.UNKNOWN);
+      return new CsvFilterableTable(source, null);
     default:
-      throw new AssertionError("Unknown flavor " + flavor);
+      throw new AssertionError("Unknown flavor " + this.flavor);
     }
   }
 }

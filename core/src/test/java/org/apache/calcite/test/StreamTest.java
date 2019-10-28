@@ -18,9 +18,9 @@ package org.apache.calcite.test;
 
 import org.apache.calcite.DataContext;
 import org.apache.calcite.avatica.util.DateTimeUtils;
+import org.apache.calcite.config.CalciteConnectionConfig;
 import org.apache.calcite.linq4j.Enumerable;
 import org.apache.calcite.linq4j.Linq4j;
-import org.apache.calcite.linq4j.function.Function0;
 import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
@@ -33,13 +33,13 @@ import org.apache.calcite.schema.Statistics;
 import org.apache.calcite.schema.StreamableTable;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.TableFactory;
+import org.apache.calcite.schema.TemporalTable;
+import org.apache.calcite.sql.SqlCall;
+import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.type.SqlTypeName;
-import org.apache.calcite.util.ImmutableBitSet;
+import org.apache.calcite.util.TestUtil;
 
-import com.google.common.base.Function;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
 
 import org.junit.Ignore;
 import org.junit.Test;
@@ -49,9 +49,13 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Tests for streaming queries.
@@ -115,7 +119,7 @@ public class StreamTest {
             + "  LogicalProject(ROWTIME=[$0], ID=[$1], PRODUCT=[$2], UNITS=[$3])\n"
             + "    LogicalTableScan(table=[[STREAMS, ORDERS]])\n")
         .explainContains("EnumerableInterpreter\n"
-            + "  BindableTableScan(table=[[]])")
+            + "  BindableTableScan(table=[[STREAMS, ORDERS, (STREAM)]])")
         .returns(
             startsWith(
                 "ROWTIME=2015-02-15 10:15:00; ID=1; PRODUCT=paint; UNITS=10",
@@ -134,7 +138,7 @@ public class StreamTest {
         .explainContains(
             "EnumerableCalc(expr#0..3=[{inputs}], expr#4=[6], expr#5=[>($t3, $t4)], PRODUCT=[$t2], $condition=[$t5])\n"
                 + "  EnumerableInterpreter\n"
-                + "    BindableTableScan(table=[[]])")
+                + "    BindableTableScan(table=[[STREAMS, ORDERS, (STREAM)]])")
         .returns(
             startsWith("PRODUCT=paint",
                 "PRODUCT=brush"));
@@ -159,7 +163,7 @@ public class StreamTest {
                 + "  EnumerableAggregate(group=[{0, 1}], C=[COUNT()])\n"
                 + "    EnumerableCalc(expr#0..3=[{inputs}], expr#4=[FLAG(HOUR)], expr#5=[FLOOR($t0, $t4)], ROWTIME=[$t5], PRODUCT=[$t2])\n"
                 + "      EnumerableInterpreter\n"
-                + "        BindableTableScan(table=[[]])")
+                + "        BindableTableScan(table=[[STREAMS, ORDERS, (STREAM)]])")
         .returns(
             startsWith("ROWTIME=2015-02-15 10:00:00; PRODUCT=paint; C=2"));
   }
@@ -180,7 +184,7 @@ public class StreamTest {
             "EnumerableSort(sort0=[$0], sort1=[$1], dir0=[ASC], dir1=[DESC])\n"
                 + "  EnumerableCalc(expr#0..3=[{inputs}], expr#4=[FLAG(HOUR)], expr#5=[FLOOR($t0, $t4)], ROWTIME=[$t5], PRODUCT=[$t2], UNITS=[$t3])\n"
                 + "    EnumerableInterpreter\n"
-                + "      BindableTableScan(table=[[]])")
+                + "      BindableTableScan(table=[[STREAMS, ORDERS, (STREAM)]])")
         .returns(
             startsWith("ROWTIME=2015-02-15 10:00:00; PRODUCT=paper; UNITS=5",
                 "ROWTIME=2015-02-15 10:00:00; PRODUCT=paint; UNITS=10",
@@ -230,8 +234,40 @@ public class StreamTest {
         .query("select stream * from orders")
         .limit(100)
         .explainContains("EnumerableInterpreter\n"
-            + "  BindableTableScan(table=[[]])")
+            + "  BindableTableScan(table=[[INFINITE_STREAMS, ORDERS, (STREAM)]])")
         .returnsCount(100);
+  }
+
+  @Test(timeout = 10000) public void testStreamCancel() {
+    final String explain = "EnumerableInterpreter\n"
+        + "  BindableTableScan(table=[[INFINITE_STREAMS, ORDERS, (STREAM)]])";
+    CalciteAssert.model(STREAM_MODEL)
+        .withDefaultSchema(INFINITE_STREAM_SCHEMA_NAME)
+        .query("select stream * from orders")
+        .explainContains(explain)
+        .returns(resultSet -> {
+          int n = 0;
+          try {
+            while (resultSet.next()) {
+              if (++n == 5) {
+                new Thread(() -> {
+                  try {
+                    Thread.sleep(3);
+                    resultSet.getStatement().cancel();
+                  } catch (InterruptedException | SQLException e) {
+                    // ignore
+                  }
+                }).start();
+              }
+            }
+            fail("expected cancel, got end-of-data");
+          } catch (SQLException e) {
+            assertThat(e.getMessage(), is("Statement canceled"));
+          }
+          // With a 3 millisecond delay, typically n is between 200 - 400
+          // before cancel takes effect.
+          assertTrue("n is " + n, n > 5);
+        });
   }
 
   @Test public void testStreamToRelationJoin() {
@@ -241,18 +277,17 @@ public class StreamTest {
             + "orders.rowtime as rowtime, orders.id as orderId, products.supplier as supplierId "
             + "from orders join products on orders.product = products.id")
         .convertContains("LogicalDelta\n"
-            + "  LogicalProject(ROWTIME=[$0], ORDERID=[$1], SUPPLIERID=[$5])\n"
-            + "    LogicalProject(ROWTIME=[$0], ID=[$1], PRODUCT=[$2], UNITS=[$3], ID0=[$5], SUPPLIER=[$6])\n"
-            + "      LogicalJoin(condition=[=($4, $5)], joinType=[inner])\n"
-            + "        LogicalProject(ROWTIME=[$0], ID=[$1], PRODUCT=[$2], UNITS=[$3], PRODUCT4=[CAST($2):VARCHAR(32) CHARACTER SET \"ISO-8859-1\" COLLATE \"ISO-8859-1$en_US$primary\" NOT NULL])\n"
-            + "          LogicalTableScan(table=[[STREAM_JOINS, ORDERS]])\n"
-            + "        LogicalTableScan(table=[[STREAM_JOINS, PRODUCTS]])\n")
+            + "  LogicalProject(ROWTIME=[$0], ORDERID=[$1], SUPPLIERID=[$6])\n"
+            + "    LogicalJoin(condition=[=($4, $5)], joinType=[inner])\n"
+            + "      LogicalProject(ROWTIME=[$0], ID=[$1], PRODUCT=[$2], UNITS=[$3], PRODUCT0=[CAST($2):VARCHAR(32) NOT NULL])\n"
+            + "        LogicalTableScan(table=[[STREAM_JOINS, ORDERS]])\n"
+            + "      LogicalTableScan(table=[[STREAM_JOINS, PRODUCTS]])\n")
         .explainContains(""
             + "EnumerableCalc(expr#0..6=[{inputs}], proj#0..1=[{exprs}], SUPPLIERID=[$t6])\n"
-            + "  EnumerableJoin(condition=[=($4, $5)], joinType=[inner])\n"
-            + "    EnumerableCalc(expr#0..3=[{inputs}], expr#4=[CAST($t2):VARCHAR(32) CHARACTER SET \"ISO-8859-1\" COLLATE \"ISO-8859-1$en_US$primary\" NOT NULL], proj#0..4=[{exprs}])\n"
+            + "  EnumerableHashJoin(condition=[=($4, $5)], joinType=[inner])\n"
+            + "    EnumerableCalc(expr#0..3=[{inputs}], expr#4=[CAST($t2):VARCHAR(32) NOT NULL], proj#0..4=[{exprs}])\n"
             + "      EnumerableInterpreter\n"
-            + "        BindableTableScan(table=[[]])\n"
+            + "        BindableTableScan(table=[[STREAM_JOINS, ORDERS, (STREAM)]])\n"
             + "    EnumerableInterpreter\n"
             + "      BindableTableScan(table=[[STREAM_JOINS, PRODUCTS]])")
         .returns(
@@ -288,26 +323,23 @@ public class StreamTest {
         .query(sql);
   }
 
-  private Function<ResultSet, Void> startsWith(String... rows) {
+  private Consumer<ResultSet> startsWith(String... rows) {
     final ImmutableList<String> rowList = ImmutableList.copyOf(rows);
-    return new Function<ResultSet, Void>() {
-      public Void apply(ResultSet input) {
-        try {
-          final CalciteAssert.ResultSetFormatter formatter =
-              new CalciteAssert.ResultSetFormatter();
-          final ResultSetMetaData metaData = input.getMetaData();
-          for (String expectedRow : rowList) {
-            if (!input.next()) {
-              throw new AssertionError("input ended too soon");
-            }
-            formatter.rowToString(input, metaData);
-            String actualRow = formatter.string();
-            assertThat(actualRow, equalTo(expectedRow));
+    return resultSet -> {
+      try {
+        final CalciteAssert.ResultSetFormatter formatter =
+            new CalciteAssert.ResultSetFormatter();
+        final ResultSetMetaData metaData = resultSet.getMetaData();
+        for (String expectedRow : rowList) {
+          if (!resultSet.next()) {
+            throw new AssertionError("input ended too soon");
           }
-          return null;
-        } catch (SQLException e) {
-          throw Throwables.propagate(e);
+          formatter.rowToString(resultSet, metaData);
+          String actualRow = formatter.string();
+          assertThat(actualRow, equalTo(expectedRow));
         }
+      } catch (SQLException e) {
+        throw TestUtil.rethrow(e);
       }
     };
   }
@@ -317,29 +349,33 @@ public class StreamTest {
    * functions.
    */
   private abstract static class BaseOrderStreamTable implements ScannableTable {
-    protected final RelProtoDataType protoRowType = new RelProtoDataType() {
-      public RelDataType apply(RelDataTypeFactory a0) {
-        return a0.builder()
-            .add("ROWTIME", SqlTypeName.TIMESTAMP)
-            .add("ID", SqlTypeName.INTEGER)
-            .add("PRODUCT", SqlTypeName.VARCHAR, 10)
-            .add("UNITS", SqlTypeName.INTEGER)
-            .build();
-      }
-    };
+    protected final RelProtoDataType protoRowType = a0 -> a0.builder()
+        .add("ROWTIME", SqlTypeName.TIMESTAMP)
+        .add("ID", SqlTypeName.INTEGER)
+        .add("PRODUCT", SqlTypeName.VARCHAR, 10)
+        .add("UNITS", SqlTypeName.INTEGER)
+        .build();
 
     public RelDataType getRowType(RelDataTypeFactory typeFactory) {
       return protoRowType.apply(typeFactory);
     }
 
     public Statistic getStatistic() {
-      return Statistics.of(100d,
-        ImmutableList.<ImmutableBitSet>of(),
+      return Statistics.of(100d, ImmutableList.of(),
         RelCollations.createSingleton(0));
     }
 
     public Schema.TableType getJdbcTableType() {
       return Schema.TableType.TABLE;
+    }
+
+    @Override public boolean isRolledUp(String column) {
+      return false;
+    }
+
+    @Override public boolean rolledUpColumnValidInsideAgg(String column,
+        SqlCall call, SqlNode parent, CalciteConnectionConfig config) {
+      return false;
     }
   }
 
@@ -357,11 +393,11 @@ public class StreamTest {
 
     public static ImmutableList<Object[]> getRowList() {
       final Object[][] rows = {
-        {ts(10, 15, 0), 1, "paint", 10},
-        {ts(10, 24, 15), 2, "paper", 5},
-        {ts(10, 24, 45), 3, "brush", 12},
-        {ts(10, 58, 0), 4, "paint", 3},
-        {ts(11, 10, 0), 5, "paint", 3}
+          {ts(10, 15, 0), 1, "paint", 10},
+          {ts(10, 24, 15), 2, "paper", 5},
+          {ts(10, 24, 45), 3, "brush", 12},
+          {ts(10, 58, 0), 4, "paint", 3},
+          {ts(11, 10, 0), 5, "paint", 3}
       };
       return ImmutableList.copyOf(rows);
     }
@@ -387,6 +423,15 @@ public class StreamTest {
     @Override public Table stream() {
       return new OrdersTable(rows);
     }
+
+    @Override public boolean isRolledUp(String column) {
+      return false;
+    }
+
+    @Override public boolean rolledUpColumnValidInsideAgg(String column,
+        SqlCall call, SqlNode parent, CalciteConnectionConfig config) {
+      return false;
+    }
   }
 
   /**
@@ -404,38 +449,28 @@ public class StreamTest {
     }
   }
 
-  public static final Function0<Object[]> ROW_GENERATOR =
-      new Function0<Object[]>() {
-        private int counter = 0;
-        private Iterator<String> items =
-            Iterables.cycle("paint", "paper", "brush").iterator();
-
-        @Override public Object[] apply() {
-          return new Object[]{System.currentTimeMillis(), counter++, items.next(), 10};
-        }
-      };
-
   /**
    * Table representing an infinitely larger ORDERS stream.
    */
   public static class InfiniteOrdersTable extends BaseOrderStreamTable
       implements StreamableTable {
     public Enumerable<Object[]> scan(DataContext root) {
-      return Linq4j.asEnumerable(new Iterable<Object[]>() {
-        @Override public Iterator<Object[]> iterator() {
-          return new Iterator<Object[]>() {
-            public boolean hasNext() {
-              return true;
-            }
+      return Linq4j.asEnumerable(() -> new Iterator<Object[]>() {
+        private final String[] items = {"paint", "paper", "brush"};
+        private int counter = 0;
 
-            public Object[] next() {
-              return ROW_GENERATOR.apply();
-            }
+        public boolean hasNext() {
+          return true;
+        }
 
-            public void remove() {
-              throw new UnsupportedOperationException();
-            }
-          };
+        public Object[] next() {
+          final int index = counter++;
+          return new Object[]{
+              System.currentTimeMillis(), index, items[index % items.length], 10};
+        }
+
+        public void remove() {
+          throw new UnsupportedOperationException();
         }
       });
     }
@@ -465,9 +500,9 @@ public class StreamTest {
     public Table create(SchemaPlus schema, String name,
         Map<String, Object> operand, RelDataType rowType) {
       final Object[][] rows = {
-        {"paint", 1},
-        {"paper", 0},
-        {"brush", 1}
+          {"paint", 1},
+          {"paper", 0},
+          {"brush", 1}
       };
       return new ProductsTable(ImmutableList.copyOf(rows));
     }
@@ -483,14 +518,10 @@ public class StreamTest {
       this.rows = rows;
     }
 
-    private final RelProtoDataType protoRowType = new RelProtoDataType() {
-      public RelDataType apply(RelDataTypeFactory a0) {
-        return a0.builder()
-            .add("ID", SqlTypeName.VARCHAR, 32)
-            .add("SUPPLIER", SqlTypeName.INTEGER)
-            .build();
-      }
-    };
+    private final RelProtoDataType protoRowType = a0 -> a0.builder()
+        .add("ID", SqlTypeName.VARCHAR, 32)
+        .add("SUPPLIER", SqlTypeName.INTEGER)
+        .build();
 
     public Enumerable<Object[]> scan(DataContext root) {
       return Linq4j.asEnumerable(rows);
@@ -501,11 +532,62 @@ public class StreamTest {
     }
 
     public Statistic getStatistic() {
-      return Statistics.of(200d, ImmutableList.<ImmutableBitSet>of());
+      return Statistics.of(200d, ImmutableList.of());
     }
 
     public Schema.TableType getJdbcTableType() {
       return Schema.TableType.TABLE;
+    }
+
+    @Override public boolean isRolledUp(String column) {
+      return false;
+    }
+
+    @Override public boolean rolledUpColumnValidInsideAgg(String column,
+        SqlCall call, SqlNode parent, CalciteConnectionConfig config) {
+      return false;
+    }
+  }
+
+  /**
+   * Table representing the PRODUCTS_TEMPORAL temporal table.
+   */
+  public static class ProductsTemporalTable implements TemporalTable {
+
+    private final RelProtoDataType protoRowType = a0 -> a0.builder()
+        .add("ID", SqlTypeName.VARCHAR, 32)
+        .add("SUPPLIER", SqlTypeName.INTEGER)
+        .add("SYS_START", SqlTypeName.TIMESTAMP)
+        .add("SYS_END", SqlTypeName.TIMESTAMP)
+        .build();
+
+    @Override public String getSysStartFieldName() {
+      return "SYS_START";
+    }
+
+    @Override public String getSysEndFieldName() {
+      return "SYS_END";
+    }
+
+    @Override public RelDataType getRowType(RelDataTypeFactory typeFactory) {
+      return protoRowType.apply(typeFactory);
+    }
+
+    @Override public Statistic getStatistic() {
+      return Statistics.of(200d, ImmutableList.of());
+    }
+
+    @Override public Schema.TableType getJdbcTableType() {
+      return Schema.TableType.TABLE;
+    }
+
+    @Override public boolean isRolledUp(String column) {
+      return false;
+    }
+
+    @Override public boolean rolledUpColumnValidInsideAgg(String column,
+        SqlCall call, SqlNode parent, CalciteConnectionConfig config) {
+      return false;
     }
   }
 }

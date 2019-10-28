@@ -71,16 +71,22 @@ public class RexCallBinding extends SqlOperatorBinding {
 
   //~ Methods ----------------------------------------------------------------
 
+  @SuppressWarnings("deprecation")
   @Override public String getStringLiteralOperand(int ordinal) {
     return RexLiteral.stringValue(operands.get(ordinal));
   }
 
+  @SuppressWarnings("deprecation")
   @Override public int getIntLiteralOperand(int ordinal) {
     return RexLiteral.intValue(operands.get(ordinal));
   }
 
-  @Override public Comparable getOperandLiteralValue(int ordinal) {
-    return RexLiteral.value(operands.get(ordinal));
+  @Override public <T> T getOperandLiteralValue(int ordinal, Class<T> clazz) {
+    final RexNode node = operands.get(ordinal);
+    if (node instanceof RexLiteral) {
+      return ((RexLiteral) node).getValueAs(clazz);
+    }
+    return clazz.cast(RexLiteral.value(node));
   }
 
   @Override public SqlMonotonicity getOperandMonotonicity(int ordinal) {
@@ -102,7 +108,7 @@ public class RexCallBinding extends SqlOperatorBinding {
     } else if (operand instanceof RexCall) {
       final RexCallBinding binding =
           RexCallBinding.create(typeFactory, (RexCall) operand, inputCollations);
-      ((RexCall) operand).getOperator().getMonotonicity(binding);
+      return ((RexCall) operand).getOperator().getMonotonicity(binding);
     }
 
     return SqlMonotonicity.NOT_MONOTONIC;
@@ -136,7 +142,7 @@ public class RexCallBinding extends SqlOperatorBinding {
   private static class RexCastCallBinding extends RexCallBinding {
     private final RelDataType type;
 
-    public RexCastCallBinding(
+    RexCastCallBinding(
         RelDataTypeFactory typeFactory,
         SqlOperator sqlOperator, List<? extends RexNode> operands,
         RelDataType type,

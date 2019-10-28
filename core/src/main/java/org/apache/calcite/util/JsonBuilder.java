@@ -33,14 +33,14 @@ public class JsonBuilder {
    */
   public Map<String, Object> map() {
     // Use LinkedHashMap to preserve order.
-    return new LinkedHashMap<String, Object>();
+    return new LinkedHashMap<>();
   }
 
   /**
    * Creates a JSON object (represented by a {@link List}).
    */
   public List<Object> list() {
-    return new ArrayList<Object>();
+    return new ArrayList<>();
   }
 
   /**
@@ -78,7 +78,7 @@ public class JsonBuilder {
   /**
    * Appends a JSON object to a string builder.
    */
-  private void append(StringBuilder buf, int indent, Object o) {
+  public void append(StringBuilder buf, int indent, Object o) {
     if (o == null) {
       buf.append("null");
     } else if (o instanceof Map) {

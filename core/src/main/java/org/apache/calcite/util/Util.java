@@ -16,7 +16,9 @@
  */
 package org.apache.calcite.util;
 
+import org.apache.calcite.avatica.util.DateTimeUtils;
 import org.apache.calcite.avatica.util.Spaces;
+import org.apache.calcite.config.CalciteSystemProperty;
 import org.apache.calcite.linq4j.Ord;
 import org.apache.calcite.runtime.CalciteException;
 import org.apache.calcite.sql.SqlAggFunction;
@@ -28,23 +30,29 @@ import org.apache.calcite.sql.SqlValuesOperator;
 import org.apache.calcite.sql.fun.SqlRowOperator;
 import org.apache.calcite.sql.util.SqlBasicVisitor;
 
-import com.google.common.base.Function;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Sets;
 
 import org.slf4j.Logger;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.Reader;
@@ -58,6 +66,7 @@ import java.math.BigDecimal;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -68,6 +77,7 @@ import java.util.AbstractMap;
 import java.util.AbstractSet;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
 import java.util.Collection;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -75,18 +85,23 @@ import java.util.HashSet;
 import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.RandomAccess;
 import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.TimeZone;
+import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.jar.JarFile;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import javax.annotation.Nullable;
+import java.util.stream.Collector;
+import javax.annotation.Nonnull;
 
 /**
  * Miscellaneous utility functions.
@@ -126,23 +141,20 @@ public class Util {
   private static final Pattern JAVA_ID_PATTERN =
       Pattern.compile("[a-zA-Z_$][a-zA-Z0-9$]*");
 
+  private static final Charset DEFAULT_CHARSET =
+      Charset.forName(CalciteSystemProperty.DEFAULT_CHARSET.value());
+
   /**
    * Maps classes to the map of their enum values. Uses a weak map so that
    * classes are not prevented from being unloaded.
    */
+  @SuppressWarnings("unchecked")
   private static final LoadingCache<Class, Map<String, Enum>> ENUM_CONSTANTS =
       CacheBuilder.newBuilder()
           .weakKeys()
-          .build(
-              new CacheLoader<Class, Map<String, Enum>>() {
-                @Override public Map<String, Enum> load(Class clazz) {
-                  //noinspection unchecked
-                  return enumConstants(clazz);
-                }
-              });
+          .build(CacheLoader.from(Util::enumConstants));
 
   //~ Methods ----------------------------------------------------------------
-
   /**
    * Does nothing with its argument. Returns whether it is ensured that
    * the call produces a single value
@@ -211,8 +223,10 @@ public class Util {
    * you are not interested in, but you don't want the compiler to warn that
    * you are not using it.
    */
-  public static boolean discard(boolean b) {
-    return b;
+  public static void discard(boolean b) {
+    if (false) {
+      discard(b);
+    }
   }
 
   /**
@@ -453,7 +467,7 @@ public class Util {
         try {
           val = field.get(o);
         } catch (IllegalAccessException e) {
-          throw newInternal(e);
+          throw new RuntimeException(e);
         }
         print(pw, val, indent + 1);
       }
@@ -463,26 +477,35 @@ public class Util {
 
   /**
    * Prints a string, enclosing in double quotes (") and escaping if
-   * necessary. For examples, <code>printDoubleQuoted(w,"x\"y",false)</code>
+   * necessary. For example, <code>printDoubleQuoted(w,"x\"y",false)</code>
    * prints <code>"x\"y"</code>.
+   *
+   * <p>The appendable where the value is printed must not incur I/O operations. This method is
+   * not meant to be used for writing the values to permanent storage.</p>
+   *
+   * @throws IllegalStateException if the print to the specified appendable fails due to I/O
    */
   public static void printJavaString(
-      PrintWriter pw,
+      Appendable appendable,
       String s,
       boolean nullMeansNull) {
-    if (s == null) {
-      if (nullMeansNull) {
-        pw.print("null");
+    try {
+      if (s == null) {
+        if (nullMeansNull) {
+          appendable.append("null");
+        }
+      } else {
+        String s1 = replace(s, "\\", "\\\\");
+        String s2 = replace(s1, "\"", "\\\"");
+        String s3 = replace(s2, "\n\r", "\\n");
+        String s4 = replace(s3, "\n", "\\n");
+        String s5 = replace(s4, "\r", "\\r");
+        appendable.append('"');
+        appendable.append(s5);
+        appendable.append('"');
       }
-    } else {
-      String s1 = replace(s, "\\", "\\\\");
-      String s2 = replace(s1, "\"", "\\\"");
-      String s3 = replace(s2, "\n\r", "\\n");
-      String s4 = replace(s3, "\n", "\\n");
-      String s5 = replace(s4, "\r", "\\r");
-      pw.print("\"");
-      pw.print(s5);
-      pw.print("\"");
+    } catch (IOException ioe) {
+      throw new IllegalStateException("The specified appendable should not incur I/O.", ioe);
     }
   }
 
@@ -612,7 +635,8 @@ public class Util {
    */
   @Deprecated // to be removed before 2.0
   public static String getFileTimestamp() {
-    SimpleDateFormat sdf = new SimpleDateFormat(FILE_TIMESTAMP_FORMAT);
+    SimpleDateFormat sdf =
+        new SimpleDateFormat(FILE_TIMESTAMP_FORMAT, Locale.ROOT);
     return sdf.format(new java.util.Date());
   }
 
@@ -648,7 +672,7 @@ public class Util {
    * underscore followed by the hex code of the character; and underscores are
    * doubled.</p>
    *
-   * Examples:
+   * <p>Examples:
    *
    * <ul>
    * <li><code>toJavaId("foo")</code> returns <code>"foo"</code>
@@ -693,6 +717,29 @@ public class Util {
     return buf.toString();
   }
 
+  /**
+   * Returns true when input string is a valid Java identifier.
+   * @param s input string
+   * @return true when input string is a valid Java identifier
+   */
+  public static boolean isValidJavaIdentifier(String s) {
+    if (s.isEmpty()) {
+      return false;
+    }
+    if (!Character.isJavaIdentifierStart(s.codePointAt(0))) {
+      return false;
+    }
+    int i = 0;
+    while (i < s.length()) {
+      int codePoint = s.codePointAt(i);
+      if (!Character.isJavaIdentifierPart(codePoint)) {
+        return false;
+      }
+      i += Character.charCount(codePoint);
+    }
+    return true;
+  }
+
   public static String toLinux(String s) {
     return s.replaceAll("\r\n", "\n");
   }
@@ -723,7 +770,7 @@ public class Util {
   /**
    * Converts a list of a string, with commas between elements.
    *
-   * For example,
+   * <p>For example,
    * <code>commaList(Arrays.asList({"a", "b"}))</code>
    * returns "a, b".
    *
@@ -755,7 +802,7 @@ public class Util {
 
   /**
    * Returns the {@link Charset} object representing the value of
-   * {@link SaffronProperties#defaultCharset}
+   * {@link CalciteSystemProperty#DEFAULT_CHARSET}
    *
    * @throws java.nio.charset.IllegalCharsetNameException If the given charset
    *                                                      name is illegal
@@ -766,32 +813,59 @@ public class Util {
    *                                                      virtual machine
    */
   public static Charset getDefaultCharset() {
-    return Charset.forName(SaffronProperties.instance().defaultCharset.get());
+    return DEFAULT_CHARSET;
   }
 
+  /** @deprecated Throw new {@link AssertionError} */
+  @Deprecated // to be removed before 2.0
   public static Error newInternal() {
-    return newInternal("(unknown cause)");
+    return new AssertionError("(unknown cause)");
   }
 
+  /** @deprecated Throw new {@link AssertionError} */
+  @Deprecated // to be removed before 2.0
   public static Error newInternal(String s) {
-    return new AssertionError("Internal error: " + s);
+    return new AssertionError(s);
   }
 
+  /** @deprecated Throw new {@link RuntimeException} if checked; throw raw
+   * exception if unchecked or {@link Error} */
+  @Deprecated // to be removed before 2.0
   public static Error newInternal(Throwable e) {
-    return newInternal(e, "(unknown cause)");
+    return new AssertionError(e);
   }
 
+  /** @deprecated Throw new {@link AssertionError} if applicable;
+   * or {@link RuntimeException} if e is checked;
+   * or raw exception if e is unchecked or {@link Error}. */
   public static Error newInternal(Throwable e, String s) {
-    String message = "Internal error: " + s;
-    if (false) {
-      // TODO re-enable this code when we're no longer throwing spurious
-      //   internal errors (which should be parse errors, for example)
-      System.err.println(message);
-      e.printStackTrace(System.err);
+    return new AssertionError("Internal error: " + s, e);
+  }
+
+  /** As {@link Throwables}{@code .throwIfUnchecked(Throwable)},
+   * which was introduced in Guava 20,
+   * but we don't require Guava version 20 yet. */
+  public static void throwIfUnchecked(Throwable throwable) {
+    Bug.upgrade("Remove when minimum Guava version is 20");
+    Objects.requireNonNull(throwable);
+    if (throwable instanceof RuntimeException) {
+      throw (RuntimeException) throwable;
     }
-    AssertionError ae = new AssertionError(message);
-    ae.initCause(e);
-    return ae;
+    if (throwable instanceof Error) {
+      throw (Error) throwable;
+    }
+  }
+
+  /**
+   * Wraps an exception with {@link RuntimeException} and return it.
+   * If the exception is already an instance of RuntimeException,
+   * returns it directly.
+   */
+  public static RuntimeException toUnchecked(Exception e) {
+    if (e instanceof RuntimeException) {
+      return (RuntimeException) e;
+    }
+    return new RuntimeException(e);
   }
 
   /**
@@ -833,60 +907,29 @@ public class Util {
     return sw.toString();
   }
 
-  /**
-   * Checks a pre-condition.
-   *
-   * <p>For example,
-   *
-   * <pre>
-   * /**
-   *   * @ pre x != 0
-   *   * /
-   * void foo(int x) {
-   *     Util.pre(x != 0, "x != 0");
-   * }</pre>
-   *
-   * @param b           Result of evaluating the pre-condition.
-   * @param description Description of the pre-condition.
-   */
+  /** @deprecated Use {@link Preconditions#checkArgument}
+   * or {@link Objects#requireNonNull(Object)} */
+  @Deprecated // to be removed before 2.0
   public static void pre(boolean b, String description) {
     if (!b) {
-      throw newInternal("pre-condition failed: " + description);
+      throw new AssertionError("pre-condition failed: " + description);
     }
   }
 
-  /**
-   * Checks a post-condition.
-   *
-   * <p>For example,
-   *
-   * <pre>
-   * /**
-   *   * @ post return != 0
-   *   * /
-   * void foo(int x) {
-   *     int res = bar(x);
-   *     Util.post(res != 0, "return != 0");
-   * }</pre>
-   *
-   * @param b           Result of evaluating the pre-condition.
-   * @param description Description of the pre-condition.
-   */
+  /** @deprecated Use {@link Preconditions#checkArgument}
+   * or {@link Objects#requireNonNull(Object)} */
+  @Deprecated // to be removed before 2.0
   public static void post(boolean b, String description) {
     if (!b) {
-      throw newInternal("post-condition failed: " + description);
+      throw new AssertionError("post-condition failed: " + description);
     }
   }
 
-  /**
-   * Checks an invariant.
-   *
-   * <p>This is similar to <code>assert</code> keyword, except that the
-   * condition is always evaluated even if asserts are disabled.
-   */
+  /** @deprecated Use {@link Preconditions#checkArgument} */
+  @Deprecated // to be removed before 2.0
   public static void permAssert(boolean b, String description) {
     if (!b) {
-      throw newInternal("invariant violated: " + description);
+      throw new AssertionError("invariant violated: " + description);
     }
   }
 
@@ -943,12 +986,12 @@ public class Util {
    * <pre><code>int x = Util.deprecated(0, false);</code></pre>
    * </blockquote>
    *
-   * but the usual usage is to pass in a descriptive string.
+   * <p>but the usual usage is to pass in a descriptive string.
    *
-   * <h3>Examples</h3>
+   * <p><b>Examples</b>
    *
-   * <h4>Example #1: Using <code>deprecated</code> to fail if a piece of
-   * supposedly dead code is reached</h4>
+   * <p><b>Example #1: Using <code>deprecated</code> to fail if a piece of
+   * supposedly dead code is reached</b>
    *
    * <blockquote>
    * <pre><code>void foo(int x) {
@@ -963,8 +1006,8 @@ public class Util {
    * }</code></pre>
    * </blockquote>
    *
-   * <h4>Example #2: Using <code>deprecated</code> to comment out dead
-   * code</h4>
+   * <p><b>Example #2: Using <code>deprecated</code> to comment out dead
+   * code</b>
    *
    * <blockquote>
    * <pre>if (Util.deprecated(false, false)) {
@@ -1264,7 +1307,7 @@ public class Util {
    * <blockquote>"std offset dst [offset],start[/time],end[/time]"
    * </blockquote>
    *
-   * where:
+   * <p>where:
    *
    * <ul>
    * <li>'std' specifies the abbrev of the time zone.
@@ -1313,13 +1356,13 @@ public class Util {
    */
   public static String toPosix(TimeZone tz, boolean verbose) {
     StringBuilder buf = new StringBuilder();
-    buf.append(tz.getDisplayName(false, TimeZone.SHORT));
+    buf.append(tz.getDisplayName(false, TimeZone.SHORT, Locale.ROOT));
     appendPosixTime(buf, tz.getRawOffset());
     final int dstSavings = tz.getDSTSavings();
     if (dstSavings == 0) {
       return buf.toString();
     }
-    buf.append(tz.getDisplayName(true, TimeZone.SHORT));
+    buf.append(tz.getDisplayName(true, TimeZone.SHORT, Locale.ROOT));
     if (verbose || (dstSavings != 3600000)) {
       // POSIX allows us to omit DST offset if it is 1:00:00
       appendPosixTime(buf, dstSavings);
@@ -1530,124 +1573,8 @@ public class Util {
     case 3:
       return new Locale(strings[0], strings[1], strings[2]);
     default:
-      throw newInternal(
-          "bad locale string '" + localeString + "'");
+      throw new AssertionError("bad locale string '" + localeString + "'");
     }
-  }
-
-  /**
-   * Runs an external application.
-   *
-   * @param cmdarray  command and arguments, see {@link ProcessBuilder}
-   * @param logger    if not null, command and exit status will be logged
-   * @param appInput  if not null, data will be copied to application's stdin
-   * @param appOutput if not null, data will be captured from application's
-   *                  stdout and stderr
-   * @return application process exit value
-   * @throws IOException
-   * @throws InterruptedException
-   */
-  @Deprecated // to be removed before 2.0
-  public static int runApplication(
-      String[] cmdarray,
-      Logger logger,
-      Reader appInput,
-      Writer appOutput) throws IOException, InterruptedException {
-    return runAppProcess(
-        newAppProcess(cmdarray),
-        logger,
-        appInput,
-        appOutput);
-  }
-
-  /**
-   * Constructs a {@link ProcessBuilder} to run an external application.
-   *
-   * @param cmdarray command and arguments.
-   * @return a ProcessBuilder.
-   */
-  @Deprecated // to be removed before 2.0
-  public static ProcessBuilder newAppProcess(String[] cmdarray) {
-    // Concatenate quoted words from cmdarray.
-    // REVIEW mb 2/24/09 Why is this needed?
-    StringBuilder buf = new StringBuilder();
-    for (int i = 0; i < cmdarray.length; ++i) {
-      if (i > 0) {
-        buf.append(" ");
-      }
-      buf.append('"');
-      buf.append(cmdarray[i]);
-      buf.append('"');
-    }
-    String fullcmd = buf.toString();
-    buf.setLength(0);
-    return new ProcessBuilder(cmdarray);
-  }
-
-
-  /**
-   * Runs an external application process.
-   *
-   * @param pb        ProcessBuilder for the application; might be
-   *                  returned by {@link #newAppProcess}.
-   * @param logger    if not null, command and exit status will be logged here
-   * @param appInput  if not null, data will be copied to application's stdin
-   * @param appOutput if not null, data will be captured from application's
-   *                  stdout and stderr
-   * @return application process exit value
-   * @throws IOException
-   * @throws InterruptedException
-   */
-  public static int runAppProcess(
-      ProcessBuilder pb,
-      Logger logger,
-      Reader appInput,
-      Writer appOutput) throws IOException, InterruptedException {
-    pb.redirectErrorStream(true);
-    if (logger != null) {
-      logger.info("start process: " + pb.command());
-    }
-    Process p = pb.start();
-
-    // Setup the input/output streams to the subprocess.
-    // The buffering here is arbitrary. Javadocs strongly encourage
-    // buffering, but the size needed is very dependent on the
-    // specific application being run, the size of the input
-    // provided by the caller, and the amount of output expected.
-    // Since this method is currently used only by unit tests,
-    // large-ish fixed buffer sizes have been chosen. If this
-    // method becomes used for something in production, it might
-    // be better to have the caller provide them as arguments.
-    if (appInput != null) {
-      OutputStream out =
-          new BufferedOutputStream(
-              p.getOutputStream(),
-              100 * 1024);
-      int c;
-      while ((c = appInput.read()) != -1) {
-        out.write(c);
-      }
-      out.flush();
-    }
-    if (appOutput != null) {
-      InputStream in =
-          new BufferedInputStream(
-              p.getInputStream(),
-              100 * 1024);
-      int c;
-      while ((c = in.read()) != -1) {
-        appOutput.write(c);
-      }
-      appOutput.flush();
-      in.close();
-    }
-    p.waitFor();
-
-    int status = p.exitValue();
-    if (logger != null) {
-      logger.info("exit status=" + status + " from " + pb.command());
-    }
-    return status;
   }
 
   /**
@@ -1666,7 +1593,7 @@ public class Util {
    * @return A list whose members are of the desired type.
    */
   public static <E> List<E> cast(List<? super E> list, Class<E> clazz) {
-    return new CastingList<E>(list, clazz);
+    return new CastingList<>(list, clazz);
   }
 
   /**
@@ -1716,11 +1643,7 @@ public class Util {
   public static <E> Iterable<E> cast(
       final Iterable<? super E> iterable,
       final Class<E> clazz) {
-    return new Iterable<E>() {
-      public Iterator<E> iterator() {
-        return cast(iterable.iterator(), clazz);
-      }
-    };
+    return () -> cast(iterable.iterator(), clazz);
   }
 
   /**
@@ -1736,7 +1659,7 @@ public class Util {
    * &nbsp;&nbsp;&nbsp;&nbsp;print(i);<br>
    * }</code></blockquote>
    *
-   * will print 1, 2, 4.
+   * <p>will print 1, 2, 4.
    *
    * @param iterable      Iterable
    * @param includeFilter Class whose instances to include
@@ -1744,11 +1667,7 @@ public class Util {
   public static <E> Iterable<E> filter(
       final Iterable<?> iterable,
       final Class<E> includeFilter) {
-    return new Iterable<E>() {
-      public Iterator<E> iterator() {
-        return new Filterator<>(iterable.iterator(), includeFilter);
-      }
-    };
+    return () -> new Filterator<>(iterable.iterator(), includeFilter);
   }
 
   public static <E> Collection<E> filter(
@@ -1877,8 +1796,7 @@ public class Util {
       Class<T> clazz) {
     final T[] ts = clazz.getEnumConstants();
     if (ts == null) {
-      // not an enum type
-      return null;
+      throw new AssertionError("not an enum type");
     }
     ImmutableMap.Builder<String, T> builder = ImmutableMap.builder();
     for (T t : ts) {
@@ -1952,6 +1870,17 @@ public class Util {
     };
   }
 
+  /** Given a list with N elements
+   * [e<sub>0</sub>, e<sub>1</sub>, ..., e<sub>N-1</sub>]
+   * (where N is even), returns a list of the N / 2 elements
+   * [ (e<sub>0</sub>, e<sub>1</sub>),
+   * (e<sub>2</sub>, e<sub>3</sub>), ... ]. */
+  public static <E> List<Pair<E, E>> pairs(final List<E> list) {
+    //noinspection unchecked
+    return Pair.zip(quotientList(list, 2, 0),
+        quotientList(list, 2, 1));
+  }
+
   /** Returns the first value if it is not null,
    * otherwise the second value.
    *
@@ -2012,7 +1941,7 @@ public class Util {
   }
 
   public static <T> Iterable<T> orEmpty(Iterable<T> v0) {
-    return v0 != null ? v0 : ImmutableList.<T>of();
+    return v0 != null ? v0 : ImmutableList.of();
   }
 
   /** Returns the last element of a list.
@@ -2045,7 +1974,7 @@ public class Util {
 
   /** Returns all but the first {@code n} elements of a list. */
   public static <E> List<E> skip(List<E> list, int fromIndex) {
-    return list.subList(fromIndex, list.size());
+    return fromIndex == 0 ? list : list.subList(fromIndex, list.size());
   }
 
   public static List<Integer> range(final int end) {
@@ -2117,6 +2046,48 @@ public class Util {
       }
     }
     return -1;
+  }
+
+  /** Converts a list into a list with unique elements.
+   *
+   * <p>The order is preserved; the second and subsequent occurrences are
+   * removed.
+   *
+   * <p>If the list is already unique it is returned unchanged. */
+  public static <E> List<E> distinctList(List<E> list) {
+    if (isDistinct(list)) {
+      return list;
+    }
+    return ImmutableList.copyOf(new LinkedHashSet<>(list));
+  }
+
+  /** Converts an iterable into a list with unique elements.
+   *
+   * <p>The order is preserved; the second and subsequent occurrences are
+   * removed.
+   *
+   * <p>If {@code iterable} is a unique list it is returned unchanged. */
+  public static <E> List<E> distinctList(Iterable<E> keys) {
+    if (keys instanceof Set) {
+      return ImmutableList.copyOf(keys);
+    }
+    if (keys instanceof List) {
+      @SuppressWarnings("unchecked") final List<E> list = (List) keys;
+      if (isDistinct(list)) {
+        return list;
+      }
+    }
+    return ImmutableList.copyOf(Sets.newLinkedHashSet(keys));
+  }
+
+  /** Returns whether two collections have any elements in common. */
+  public static <E> boolean intersects(Collection<E> c0, Collection<E> c1) {
+    for (E e : c1) {
+      if (c0.contains(e)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Looks for a string within a list of strings, using a given
@@ -2271,16 +2242,11 @@ public class Util {
    * @param <V> Value type
    * @return Map that is a view onto the values
    */
-  public static <K, V> Map<K, V> asIndexMap(
+  public static <K, V> Map<K, V> asIndexMapJ(
       final Collection<V> values,
       final Function<V, K> function) {
     final Collection<Map.Entry<K, V>> entries =
-        Collections2.transform(values,
-            new Function<V, Map.Entry<K, V>>() {
-              public Map.Entry<K, V> apply(@Nullable V input) {
-                return Pair.of(function.apply(input), input);
-              }
-            });
+        Collections2.transform(values, v -> Pair.of(function.apply(v), v));
     final Set<Map.Entry<K, V>> entrySet =
         new AbstractSet<Map.Entry<K, V>>() {
           public Iterator<Map.Entry<K, V>> iterator() {
@@ -2296,6 +2262,14 @@ public class Util {
         return entrySet;
       }
     };
+  }
+
+  @SuppressWarnings("Guava")
+  @Deprecated
+  public static <K, V> Map<K, V> asIndexMap(
+      final Collection<V> values,
+      final com.google.common.base.Function<V, K> function) {
+    return asIndexMapJ(values, function::apply);
   }
 
   /**
@@ -2322,28 +2296,141 @@ public class Util {
     }
   }
 
-  /** Returns the value of a system property as a boolean.
-   *
-   * <p>For example, the property "foo" is considered true if you supply
-   * {@code -Dfoo} or {@code -Dfoo=true} or {@code -Dfoo=TRUE},
-   * false if you omit the flag or supply {@code -Dfoo=false}.
-   *
-   * @param property Property name
-   * @return Whether property is true
-   */
-  public static boolean getBooleanProperty(String property) {
-    return getBooleanProperty(property, false);
+  /** Returns a copy of a list of lists, making the component lists immutable if
+   * they are not already. */
+  public static <E> List<List<E>> immutableCopy(
+      Iterable<? extends Iterable<E>> lists) {
+    int n = 0;
+    for (Iterable<E> list : lists) {
+      if (!(list instanceof ImmutableList)) {
+        ++n;
+      }
+    }
+    if (n == 0) {
+      // Lists are already immutable. Furthermore, if the outer list is
+      // immutable we will just return "lists" unchanged.
+      //noinspection unchecked
+      return ImmutableList.copyOf((Iterable<List<E>>) lists);
+    }
+    final ImmutableList.Builder<List<E>> builder =
+        ImmutableList.builder();
+    for (Iterable<E> list : lists) {
+      builder.add(ImmutableList.copyOf(list));
+    }
+    return builder.build();
   }
 
-  /** Returns the value of a system property as a boolean, returning a given
-   * default value if the property is not specified. */
-  public static boolean getBooleanProperty(String property,
-      boolean defaultValue) {
-    final String v = System.getProperties().getProperty(property);
-    if (v == null) {
-      return defaultValue;
+  /** Creates a {@link PrintWriter} to a given output stream using UTF-8
+   * character set.
+   *
+   * <p>Does not use the default character set. */
+  public static PrintWriter printWriter(OutputStream out) {
+    return new PrintWriter(
+        new BufferedWriter(
+            new OutputStreamWriter(out, StandardCharsets.UTF_8)));
+  }
+
+  /** Creates a {@link PrintWriter} to a given file using UTF-8
+   * character set.
+   *
+   * <p>Does not use the default character set. */
+  public static PrintWriter printWriter(File file)
+      throws FileNotFoundException {
+    return printWriter(new FileOutputStream(file));
+  }
+
+  /** Creates a {@link BufferedReader} to a given input stream using UTF-8
+   * character set.
+   *
+   * <p>Does not use the default character set. */
+  public static BufferedReader reader(InputStream in) {
+    return new BufferedReader(
+        new InputStreamReader(in, StandardCharsets.UTF_8));
+  }
+
+  /** Creates a {@link BufferedReader} to read a given file using UTF-8
+   * character set.
+   *
+   * <p>Does not use the default character set. */
+  public static BufferedReader reader(File file) throws FileNotFoundException {
+    return reader(new FileInputStream(file));
+  }
+
+  /** Creates a {@link Calendar} in the UTC time zone and root locale.
+   * Does not use the time zone or locale. */
+  public static Calendar calendar() {
+    return Calendar.getInstance(DateTimeUtils.UTC_ZONE, Locale.ROOT);
+  }
+
+  /** Creates a {@link Calendar} in the UTC time zone and root locale
+   * with a given time. */
+  public static Calendar calendar(long millis) {
+    Calendar calendar = calendar();
+    calendar.setTimeInMillis(millis);
+    return calendar;
+  }
+
+  /**
+   * Returns a {@code Collector} that accumulates the input elements into a
+   * Guava {@link ImmutableList} via a {@link ImmutableList.Builder}.
+   *
+   * <p>It will be obsolete when we move to {@link Bug#upgrade Guava 21.0},
+   * which has {@code ImmutableList.toImmutableList()}.
+   *
+   * @param <T> Type of the input elements
+   *
+   * @return a {@code Collector} that collects all the input elements into an
+   * {@link ImmutableList}, in encounter order
+   */
+  public static <T> Collector<T, ImmutableList.Builder<T>, ImmutableList<T>>
+      toImmutableList() {
+    return Collector.of(ImmutableList::builder, ImmutableList.Builder::add,
+        (t, u) -> {
+          t.addAll(u.build());
+          return t;
+        },
+        ImmutableList.Builder::build);
+  }
+
+  /** Transforms a list, applying a function to each element. */
+  public static <F, T> List<T> transform(List<F> list,
+      java.util.function.Function<F, T> function) {
+    if (list instanceof RandomAccess) {
+      return new RandomAccessTransformingList<>(list, function);
+    } else {
+      return new TransformingList<>(list, function);
     }
-    return "".equals(v) || "true".equalsIgnoreCase(v);
+  }
+
+  /** Filters an iterable. */
+  public static <E> Iterable<E> filter(Iterable<E> iterable,
+      Predicate<E> predicate) {
+    return () -> filter(iterable.iterator(), predicate);
+  }
+
+  /** Filters an iterator. */
+  public static <E> Iterator<E> filter(Iterator<E> iterator,
+      Predicate<E> predicate) {
+    return new FilteringIterator<>(iterator, predicate);
+  }
+
+  /** Returns a view of a list, picking the elements of a list with the given
+   * set of ordinals. */
+  public static <E> List<E> select(List<E> list, List<Integer> ordinals) {
+    return new AbstractList<E>() {
+      @Override public int size() {
+        return ordinals.size();
+      }
+
+      @Override public E get(int index) {
+        return list.get(ordinals.get(index));
+      }
+    };
+  }
+
+  /** Returns a map which ignores any write operation. */
+  public static <K, V> Map<K, V> blackholeMap() {
+    return BlackholeMap.of();
   }
 
   //~ Inner Classes ----------------------------------------------------------
@@ -2379,6 +2466,86 @@ public class Util {
         throw FoundOne.NULL;
       }
       return super.visit(call);
+    }
+  }
+
+  /** List that returns the same number of elements as a backing list,
+   * applying a transformation function to each one.
+   *
+   * @param <F> Element type of backing list
+   * @param <T> Element type of this list
+   */
+  private static class TransformingList<F, T> extends AbstractList<T> {
+    private final java.util.function.Function<F, T> function;
+    private final List<F> list;
+
+    TransformingList(List<F> list,
+        java.util.function.Function<F, T> function) {
+      this.function = function;
+      this.list = list;
+    }
+
+    public T get(int i) {
+      return function.apply(list.get(i));
+    }
+
+    public int size() {
+      return list.size();
+    }
+
+    @Override @Nonnull public Iterator<T> iterator() {
+      return listIterator();
+    }
+  }
+
+  /** Extension to {@link TransformingList} that implements
+   * {@link RandomAccess}.
+   *
+   * @param <F> Element type of backing list
+   * @param <T> Element type of this list
+   */
+  private static class RandomAccessTransformingList<F, T>
+      extends TransformingList<F, T> implements RandomAccess {
+    RandomAccessTransformingList(List<F> list,
+        java.util.function.Function<F, T> function) {
+      super(list, function);
+    }
+  }
+
+  /** Iterator that applies a predicate to each element.
+   *
+   * @param <T> Element type */
+  private static class FilteringIterator<T> implements Iterator<T> {
+    private static final Object DUMMY = new Object();
+    final Iterator<? extends T> iterator;
+    private final Predicate<T> predicate;
+    T current;
+
+    FilteringIterator(Iterator<? extends T> iterator,
+        Predicate<T> predicate) {
+      this.iterator = iterator;
+      this.predicate = predicate;
+      current = moveNext();
+    }
+
+    public boolean hasNext() {
+      return current != DUMMY;
+    }
+
+    public T next() {
+      final T t = this.current;
+      current = moveNext();
+      return t;
+    }
+
+    protected T moveNext() {
+      while (iterator.hasNext()) {
+        T t = iterator.next();
+        if (predicate.test(t)) {
+          return t;
+        }
+      }
+      return (T) DUMMY;
     }
   }
 }

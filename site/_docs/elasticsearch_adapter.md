@@ -33,9 +33,7 @@ of the Elasticsearch adapter. The models can contain
 definitions of
 [materializations]({{ site.baseurl }}/docs/model.html#materialization).
 The name of the tables defined in the model definition corresponds to
-[types](https://www.elastic.co/blog/what-is-an-elasticsearch-index) in
-Elasticsearch. The schema/database is represented by the `index` parameter
-in the model definition.
+indices in Elasticsearch.
 
 A basic example of a model file is given below:
 
@@ -49,9 +47,7 @@ A basic example of a model file is given below:
       "name": "elasticsearch",
       "factory": "org.apache.calcite.adapter.elasticsearch.ElasticsearchSchemaFactory",
       "operand": {
-        "coordinates": "{'127.0.0.1': 9300}",
-        "userConfig": "{'bulk.flush.max.actions': 10, 'bulk.flush.max.size.mb': 1}",
-        "index": "usa"
+        "coordinates": "{'127.0.0.1': 9200}"
       }
     }
   ]
@@ -67,19 +63,29 @@ $ ./sqlline
 sqlline> !connect jdbc:calcite:model=model.json admin admin
 {% endhighlight %}
 
-`sqlline` will now accept SQL queries which access your Elasticsearch types.
+You can also specify the index name that is represented by the `index` parameter in the model definition:
+
+{% highlight json %}
+...
+
+      "operand": {
+        "coordinates": "{'127.0.0.1': 9200}",
+        "index": "usa"
+      }
+
+...
+{% endhighlight %}
+
+`sqlline` will now accept SQL queries which access your Elasticsearch.
 The purpose of this adapter is to compile the query into the most efficient
 Elasticsearch SEARCH JSON possible by exploiting filtering and sorting directly
 in Elasticsearch where possible.
 
-For example, in the example dataset there is an Elasticsearch type
-named `zips` under index named `usa`.
-
 We can issue a simple query to fetch the names of all the states
-stored in the type `zips`. By default, Elasticsearch returns only 10 rows:
+stored in the index `usa`.
 
 {% highlight sql %}
-sqlline> SELECT * from "zips";
+sqlline> SELECT * from "usa";
 {% endhighlight %}
 
 {% highlight json %}
@@ -131,6 +137,22 @@ The final source json given to Elasticsearch is below:
 }
 {% endhighlight %}
 
-This is the initial version of the Calcite Elasticsearch adapter.
-Work is in progress to introduce new features like aggregations into
-it.
+You can also query elastic search index without prior view definition:
+
+{% highlight sql %}
+sqlline> SELECT _MAP['city'], _MAP['state'] from "elasticsearch"."usa" order by _MAP['state'];
+{% endhighlight %}
+
+### Use of Scrolling API
+
+For queries without aggregate functions (like `COUNT`, `MAX` etc.) elastic adapter
+uses [scroll API](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-request-scroll.html), by default.
+This ensures that consistent and full data-set is returned to end user (lazily and in batches). Please note that
+scroll is automatically cleared (removed) when all query resuts are consumed.
+
+### Supported versions
+
+Currently this adapter supports ElasticSearch versions 6.x (or newer). Generally
+we try to follow official [support schedule](https://www.elastic.co/support/eol).
+Also, types are not supported (this adapter only supports indices).
+

@@ -226,7 +226,7 @@ public abstract class QueryableDefaults {
     return new BaseQueryable<T2>(source.getProvider(), clazz,
         source.getExpression()) {
       public Enumerator<T2> enumerator() {
-        return new EnumerableDefaults.CastingEnumerator<T2>(source.enumerator(),
+        return new EnumerableDefaults.CastingEnumerator<>(source.enumerator(),
             clazz);
       }
     };
@@ -711,8 +711,8 @@ public abstract class QueryableDefaults {
    * Sorts the elements of a sequence in descending
    * order according to a key.
    */
-  public static <T, TKey extends Comparable> OrderedQueryable<T>
-  orderByDescending(Queryable<T> source,
+  public static <T, TKey extends Comparable> OrderedQueryable<T> orderByDescending(
+      Queryable<T> source,
       FunctionExpression<Function1<T, TKey>> keySelector) {
     throw Extensions.todo();
   }
@@ -897,7 +897,7 @@ public abstract class QueryableDefaults {
       FunctionExpression<Predicate1<T>> predicate) {
     return skipWhileN(source,
         Expressions.lambda(
-            Functions.<T, Integer>toPredicate2(predicate.getFunction())));
+            Functions.toPredicate2(predicate.getFunction())));
   }
 
   /**
@@ -911,7 +911,7 @@ public abstract class QueryableDefaults {
     return new BaseQueryable<T>(source.getProvider(), source.getElementType(),
         source.getExpression()) {
       public Enumerator<T> enumerator() {
-        return new EnumerableDefaults.SkipWhileEnumerator<T>(
+        return new EnumerableDefaults.SkipWhileEnumerator<>(
             source.enumerator(), predicate.getFunction());
       }
     };
@@ -1033,7 +1033,7 @@ public abstract class QueryableDefaults {
       FunctionExpression<Predicate1<T>> predicate) {
     return takeWhileN(source,
         Expressions.lambda(
-            Functions.<T, Integer>toPredicate2(predicate.getFunction())));
+            Functions.toPredicate2(predicate.getFunction())));
   }
 
   /**
@@ -1046,7 +1046,7 @@ public abstract class QueryableDefaults {
     return new BaseQueryable<T>(source.getProvider(), source.getElementType(),
         source.getExpression()) {
       public Enumerator<T> enumerator() {
-        return new EnumerableDefaults.TakeWhileEnumerator<T>(
+        return new EnumerableDefaults.TakeWhileEnumerator<>(
             source.enumerator(), predicate.getFunction());
       }
     };
@@ -1076,8 +1076,8 @@ public abstract class QueryableDefaults {
    * Performs a subsequent ordering of the elements in a sequence in
    * descending order according to a key.
    */
-  public static <T, TKey extends Comparable<TKey>> OrderedQueryable<T>
-  thenByDescending(OrderedQueryable<T> source,
+  public static <T, TKey extends Comparable<TKey>> OrderedQueryable<T> thenByDescending(
+      OrderedQueryable<T> source,
       FunctionExpression<Function1<T, TKey>> keySelector) {
     throw Extensions.todo();
   }
@@ -1144,12 +1144,16 @@ public abstract class QueryableDefaults {
     throw Extensions.todo();
   }
 
-  /** Replayable. */
+  /** Replayable.
+   *
+   * @param <T> element type */
   public interface Replayable<T> extends Queryable<T> {
     void replay(QueryableFactory<T> factory);
   }
 
-  /** Replayable queryable. */
+  /** Replayable queryable.
+   *
+   * @param <T> element type */
   public abstract static class ReplayableQueryable<T>
       extends DefaultQueryable<T> implements Replayable<T> {
     public void replay(QueryableFactory<T> factory) {
@@ -1183,7 +1187,9 @@ public abstract class QueryableDefaults {
     }
   }
 
-  /** Non-leaf replayable queryable. */
+  /** Non-leaf replayable queryable.
+   *
+   * @param <T> element type */
   public abstract static class NonLeafReplayableQueryable<T>
       extends ReplayableQueryable<T> {
     private final Queryable<T> original;

@@ -19,107 +19,112 @@ package org.apache.calcite.adapter.elasticsearch;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractSchema;
 
-import com.carrotsearch.hppc.cursors.ObjectObjectCursor;
-
-import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableList;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Sets;
 
-import org.elasticsearch.action.admin.indices.get.GetIndexRequest;
-import org.elasticsearch.action.admin.indices.mapping.get.GetMappingsRequest;
-import org.elasticsearch.action.admin.indices.mapping.get.GetMappingsResponse;
-import org.elasticsearch.client.Client;
-import org.elasticsearch.client.transport.TransportClient;
-import org.elasticsearch.cluster.metadata.MappingMetaData;
-import org.elasticsearch.cluster.node.DiscoveryNode;
-import org.elasticsearch.common.collect.ImmutableOpenMap;
-import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.common.transport.InetSocketTransportAddress;
-import org.elasticsearch.common.transport.TransportAddress;
+import org.elasticsearch.client.Request;
+import org.elasticsearch.client.Response;
+import org.elasticsearch.client.RestClient;
 
-import java.net.InetSocketAddress;
-import java.util.ArrayList;
-import java.util.List;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.util.Collections;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
- * Schema mapped onto an index of ELASTICSEARCH types.
- *
- * <p>Each table in the schema is an ELASTICSEARCH type in that index.
+ * Each table in the schema is an ELASTICSEARCH index.
  */
 public class ElasticsearchSchema extends AbstractSchema {
-  final String index;
 
-  private transient Client client;
+  private final RestClient client;
+
+  private final ObjectMapper mapper;
+
+  private final Map<String, Table> tableMap;
 
   /**
-   * Creates an Elasticsearch schema.
-   *
-   * @param coordinates Map of Elasticsearch node locations (host, port)
-   * @param userConfig Map of user-specified configurations
-   * @param indexName Elasticsearch database name, e.g. "usa".
+   * Default batch size to be used during scrolling.
    */
-  ElasticsearchSchema(Map<String, Integer> coordinates,
-      Map<String, String> userConfig, String indexName) {
+  private final int fetchSize;
+
+  /**
+   * Allows schema to be instantiated from existing elastic search client.
+   *
+   * @param client existing client instance
+   * @param mapper mapper for JSON (de)serialization
+   * @param index name of ES index
+   */
+  public ElasticsearchSchema(RestClient client, ObjectMapper mapper, String index) {
+    this(client, mapper, index, ElasticsearchTransport.DEFAULT_FETCH_SIZE);
+  }
+
+  @VisibleForTesting
+  ElasticsearchSchema(RestClient client, ObjectMapper mapper,
+                      String index, int fetchSize) {
     super();
+    this.client = Objects.requireNonNull(client, "client");
+    this.mapper = Objects.requireNonNull(mapper, "mapper");
+    Preconditions.checkArgument(fetchSize > 0,
+        "invalid fetch size. Expected %s > 0", fetchSize);
+    this.fetchSize = fetchSize;
 
-    final List<InetSocketAddress> transportAddresses = new ArrayList<>();
-    for (Map.Entry<String, Integer> coordinate: coordinates.entrySet()) {
-      transportAddresses.add(new InetSocketAddress(coordinate.getKey(), coordinate.getValue()));
-    }
-
-    open(transportAddresses, userConfig);
-
-    if (client != null) {
-      final String[] indices = client.admin().indices()
-          .getIndex(new GetIndexRequest().indices(indexName))
-          .actionGet().getIndices();
-      if (indices.length == 1) {
-        index = indices[0];
-      } else {
-        index = null;
+    if (index == null) {
+      try {
+        this.tableMap = createTables(indicesFromElastic());
+      } catch (IOException e) {
+        throw new UncheckedIOException("Couldn't get indices", e);
       }
     } else {
-      index = null;
+      this.tableMap = createTables(Collections.singleton(index));
     }
   }
 
   @Override protected Map<String, Table> getTableMap() {
-    final ImmutableMap.Builder<String, Table> builder = ImmutableMap.builder();
+    return tableMap;
+  }
 
-    try {
-      GetMappingsResponse response = client.admin().indices().getMappings(
-        new GetMappingsRequest().indices(index)).get();
-      ImmutableOpenMap<String, MappingMetaData> mapping = response.getMappings().get(index);
-      for (ObjectObjectCursor<String, MappingMetaData> c: mapping) {
-        builder.put(c.key, new ElasticsearchTable(client, index, c.key));
-      }
-    } catch (Exception e) {
-      throw Throwables.propagate(e);
+  private Map<String, Table> createTables(Iterable<String> indices) {
+    final ImmutableMap.Builder<String, Table> builder = ImmutableMap.builder();
+    for (String index : indices) {
+      final ElasticsearchTransport transport = new ElasticsearchTransport(client, mapper,
+          index, fetchSize);
+      builder.put(index, new ElasticsearchTable(transport));
     }
     return builder.build();
   }
 
-  private void open(List<InetSocketAddress> transportAddresses, Map<String, String> userConfig) {
-    final List<TransportAddress> transportNodes = new ArrayList<>(transportAddresses.size());
-    for (InetSocketAddress address : transportAddresses) {
-      transportNodes.add(new InetSocketTransportAddress(address));
+  /**
+   * Queries {@code _alias} definition to automatically detect all indices
+   *
+   * @return list of indices
+   * @throws IOException for any IO related issues
+   * @throws IllegalStateException if reply is not understood
+   */
+  private Set<String> indicesFromElastic() throws IOException {
+    final String endpoint = "/_alias";
+    final Response response = client.performRequest(new Request("GET", endpoint));
+    try (InputStream is = response.getEntity().getContent()) {
+      final JsonNode root = mapper.readTree(is);
+      if (!(root.isObject() && root.size() > 0)) {
+        final String message = String.format(Locale.ROOT, "Invalid response for %s/%s "
+            + "Expected object of at least size 1 got %s (of size %d)", response.getHost(),
+            response.getRequestLine(), root.getNodeType(), root.size());
+        throw new IllegalStateException(message);
+      }
+
+      Set<String> indices = Sets.newHashSet(root.fieldNames());
+      return indices;
     }
-
-    Settings settings = Settings.settingsBuilder().put(userConfig).build();
-
-    final TransportClient transportClient = TransportClient.builder().settings(settings).build();
-    for (TransportAddress transport : transportNodes) {
-      transportClient.addTransportAddress(transport);
-    }
-
-    final List<DiscoveryNode> nodes = ImmutableList.copyOf(transportClient.connectedNodes());
-    if (nodes.isEmpty()) {
-      throw new RuntimeException("Cannot connect to any elasticsearch nodes");
-    }
-
-    client = transportClient;
   }
+
 }
 
 // End ElasticsearchSchema.java

@@ -29,6 +29,7 @@ import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.convert.ConverterRule;
+import org.apache.calcite.rel.core.RelFactories;
 import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalProject;
@@ -41,13 +42,10 @@ import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.validate.SqlValidatorUtil;
 import org.apache.calcite.util.Pair;
 
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
-
-import java.util.AbstractList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Rules and relational operators for
@@ -58,23 +56,15 @@ public class CassandraRules {
   private CassandraRules() {}
 
   public static final RelOptRule[] RULES = {
-    CassandraFilterRule.INSTANCE,
-    CassandraProjectRule.INSTANCE,
-    CassandraSortRule.INSTANCE,
-    CassandraLimitRule.INSTANCE
+      CassandraFilterRule.INSTANCE,
+      CassandraProjectRule.INSTANCE,
+      CassandraSortRule.INSTANCE,
+      CassandraLimitRule.INSTANCE
   };
 
   static List<String> cassandraFieldNames(final RelDataType rowType) {
-    return SqlValidatorUtil.uniquify(
-        new AbstractList<String>() {
-          @Override public String get(int index) {
-            return rowType.getFieldList().get(index).getName();
-          }
-
-          @Override public int size() {
-            return rowType.getFieldCount();
-          }
-        });
+    return SqlValidatorUtil.uniquify(rowType.getFieldNames(),
+        SqlValidatorUtil.EXPR_SUGGESTER, true);
   }
 
   /** Translator from {@link RexNode} to strings in Cassandra's expression
@@ -100,17 +90,16 @@ public class CassandraRules {
   abstract static class CassandraConverterRule extends ConverterRule {
     protected final Convention out;
 
-    public CassandraConverterRule(
-        Class<? extends RelNode> clazz,
+    CassandraConverterRule(Class<? extends RelNode> clazz,
         String description) {
-      this(clazz, Predicates.<RelNode>alwaysTrue(), description);
+      this(clazz, r -> true, description);
     }
 
-    public <R extends RelNode> CassandraConverterRule(
-        Class<R> clazz,
+    <R extends RelNode> CassandraConverterRule(Class<R> clazz,
         Predicate<? super R> predicate,
         String description) {
-      super(clazz, predicate, Convention.NONE, CassandraRel.CONVENTION, description);
+      super(clazz, predicate, Convention.NONE,
+          CassandraRel.CONVENTION, RelFactories.LOGICAL_BUILDER, description);
       this.out = CassandraRel.CONVENTION;
     }
   }
@@ -121,13 +110,9 @@ public class CassandraRules {
    */
   private static class CassandraFilterRule extends RelOptRule {
     private static final Predicate<LogicalFilter> PREDICATE =
-        new Predicate<LogicalFilter>() {
-          public boolean apply(LogicalFilter input) {
-            // TODO: Check for an equality predicate on the partition key
-            // Right now this just checks if we have a single top-level AND
-            return RelOptUtil.disjunctions(input.getCondition()).size() == 1;
-          }
-        };
+        // TODO: Check for an equality predicate on the partition key
+        // Right now this just checks if we have a single top-level AND
+        filter -> RelOptUtil.disjunctions(filter.getCondition()).size() == 1;
 
     private static final CassandraFilterRule INSTANCE = new CassandraFilterRule();
 
@@ -144,7 +129,7 @@ public class CassandraRules {
       // Get field names from the scan operation
       CassandraTableScan scan = call.rel(1);
       Pair<List<String>, List<String>> keyFields = scan.cassandraTable.getKeyFields();
-      Set<String> partitionKeys = new HashSet<String>(keyFields.left);
+      Set<String> partitionKeys = new HashSet<>(keyFields.left);
       List<String> fieldNames = CassandraRules.cassandraFieldNames(filter.getInput().getRowType());
 
       List<RexNode> disjunctions = RelOptUtil.disjunctions(condition);
@@ -276,28 +261,21 @@ public class CassandraRules {
    * {@link CassandraSort}.
    */
   private static class CassandraSortRule extends RelOptRule {
-    private static final Predicate<Sort> SORT_PREDICATE =
-        new Predicate<Sort>() {
-          public boolean apply(Sort input) {
-            // Limits are handled by CassandraLimit
-            return input.offset == null && input.fetch == null;
-          }
-        };
-    private static final Predicate<CassandraFilter> FILTER_PREDICATE =
-        new Predicate<CassandraFilter>() {
-          public boolean apply(CassandraFilter input) {
-            // We can only use implicit sorting within a single partition
-            return input.isSinglePartition();
-          }
-        };
+
     private static final RelOptRuleOperand CASSANDRA_OP =
         operand(CassandraToEnumerableConverter.class,
-        operand(CassandraFilter.class, null, FILTER_PREDICATE, any()));
+            operandJ(CassandraFilter.class, null,
+                // We can only use implicit sorting within a single partition
+                CassandraFilter::isSinglePartition, any()));
 
     private static final CassandraSortRule INSTANCE = new CassandraSortRule();
 
     private CassandraSortRule() {
-      super(operand(Sort.class, null, SORT_PREDICATE, CASSANDRA_OP), "CassandraSortRule");
+      super(
+          operandJ(Sort.class, null,
+              // Limits are handled by CassandraLimit
+              sort -> sort.offset == null && sort.fetch == null, CASSANDRA_OP),
+          "CassandraSortRule");
     }
 
     public RelNode convert(Sort sort, CassandraFilter filter) {
@@ -363,7 +341,7 @@ public class CassandraRules {
      * @return Reverse of the input direction
      */
     private RelFieldCollation.Direction reverseDirection(RelFieldCollation.Direction direction) {
-      switch(direction) {
+      switch (direction) {
       case ASCENDING:
       case STRICTLY_ASCENDING:
         return RelFieldCollation.Direction.DESCENDING;

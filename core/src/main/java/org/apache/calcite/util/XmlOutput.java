@@ -18,10 +18,7 @@ package org.apache.calcite.util;
 
 import com.google.common.collect.Lists;
 
-import java.io.IOException;
-import java.io.LineNumberReader;
 import java.io.PrintWriter;
-import java.io.StringReader;
 import java.io.Writer;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -375,11 +372,11 @@ public class XmlOutput {
       out.print(data);
       out.println("]]>");
     } else if (!specials) {
-      out.print(data);
+      out.println(data);
     } else {
       stringEncodeXML(data, out);
+      out.println();
     }
-
     out.flush();
     tagsWritten++;
   }
@@ -397,19 +394,28 @@ public class XmlOutput {
    * Writes content.
    */
   public void content(String content) {
+    // This method previously used a LineNumberReader, but that class is
+    // susceptible to a form of DoS attack. It uses lots of memory and CPU if a
+    // malicious client gives it input with very long lines.
     if (content != null) {
       indent++;
-      LineNumberReader
-          in = new LineNumberReader(new StringReader(content));
-      try {
-        String line;
-        while ((line = in.readLine()) != null) {
+      final char[] chars = content.toCharArray();
+      int prev = 0;
+      for (int i = 0; i < chars.length; i++) {
+        if (chars[i] == '\n'
+            || chars[i] == '\r'
+            && i + 1 < chars.length
+            && chars[i + 1] == '\n') {
           displayIndent(out, indent);
-          out.println(line);
+          out.println(content.substring(prev, i));
+          if (chars[i] == '\r') {
+            ++i;
+          }
+          prev = i + 1;
         }
-      } catch (IOException ex) {
-        throw new AssertionError(ex);
       }
+      displayIndent(out, indent);
+      out.println(content.substring(prev, chars.length));
       indent--;
       out.flush();
     }
@@ -540,8 +546,8 @@ public class XmlOutput {
     /**
      * Identity transform
      */
-    public StringEscaper() {
-      translationVector = new ArrayList<String>();
+    StringEscaper() {
+      translationVector = new ArrayList<>();
     }
 
     /**
@@ -552,7 +558,7 @@ public class XmlOutput {
       if (i >= translationVector.size()) {
         // Extend list by adding the requisite number of nulls.
         final int count = i + 1 - translationVector.size();
-        translationVector.addAll(Collections.<String>nCopies(count, null));
+        translationVector.addAll(Collections.nCopies(count, null));
       }
       translationVector.set(i, to);
     }
@@ -563,7 +569,7 @@ public class XmlOutput {
      */
     public void makeImmutable() {
       translationTable =
-          translationVector.toArray(new String[translationVector.size()]);
+          translationVector.toArray(new String[0]);
       translationVector = null;
     }
 
@@ -591,7 +597,7 @@ public class XmlOutput {
         } else {
           if (sb == null) {
             sb = new StringBuilder(n * 2);
-            sb.append(s.substring(0, i));
+            sb.append(s, 0, i);
           }
           sb.append(escape);
         }
@@ -607,7 +613,7 @@ public class XmlOutput {
     protected StringEscaper clone() {
       StringEscaper clone = new StringEscaper();
       if (translationVector != null) {
-        clone.translationVector = new ArrayList<String>(translationVector);
+        clone.translationVector = new ArrayList<>(translationVector);
       }
       if (translationTable != null) {
         clone.translationTable = translationTable.clone();

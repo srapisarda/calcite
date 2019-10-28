@@ -17,7 +17,9 @@
 package org.apache.calcite.adapter.jdbc;
 
 import org.apache.calcite.avatica.AvaticaUtils;
+import org.apache.calcite.avatica.MetaImpl;
 import org.apache.calcite.avatica.SqlType;
+import org.apache.calcite.linq4j.function.Experimental;
 import org.apache.calcite.linq4j.tree.Expression;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
@@ -28,26 +30,37 @@ import org.apache.calcite.schema.Function;
 import org.apache.calcite.schema.Schema;
 import org.apache.calcite.schema.SchemaFactory;
 import org.apache.calcite.schema.SchemaPlus;
+import org.apache.calcite.schema.SchemaVersion;
 import org.apache.calcite.schema.Schemas;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.sql.SqlDialect;
+import org.apache.calcite.sql.SqlDialectFactory;
+import org.apache.calcite.sql.SqlDialectFactoryImpl;
 import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.Util;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Ordering;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiFunction;
 import javax.sql.DataSource;
 
 /**
@@ -64,6 +77,13 @@ public class JdbcSchema implements Schema {
   public final SqlDialect dialect;
   final JdbcConvention convention;
   private ImmutableMap<String, JdbcTable> tableMap;
+  private final boolean snapshot;
+
+  @Experimental
+  public static final ThreadLocal<Foo> THREAD_METADATA = new ThreadLocal<>();
+
+  private static final Ordering<Iterable<Integer>> VERSION_ORDERING =
+      Ordering.<Integer>natural().lexicographical();
 
   /**
    * Creates a JDBC schema.
@@ -76,14 +96,19 @@ public class JdbcSchema implements Schema {
    */
   public JdbcSchema(DataSource dataSource, SqlDialect dialect,
       JdbcConvention convention, String catalog, String schema) {
-    super();
-    this.dataSource = dataSource;
-    this.dialect = dialect;
+    this(dataSource, dialect, convention, catalog, schema, null);
+  }
+
+  private JdbcSchema(DataSource dataSource, SqlDialect dialect,
+      JdbcConvention convention, String catalog, String schema,
+      ImmutableMap<String, JdbcTable> tableMap) {
+    this.dataSource = Objects.requireNonNull(dataSource);
+    this.dialect = Objects.requireNonNull(dialect);
     this.convention = convention;
     this.catalog = catalog;
     this.schema = schema;
-    assert dialect != null;
-    assert dataSource != null;
+    this.tableMap = tableMap;
+    this.snapshot = tableMap != null;
   }
 
   public static JdbcSchema create(
@@ -92,9 +117,20 @@ public class JdbcSchema implements Schema {
       DataSource dataSource,
       String catalog,
       String schema) {
+    return create(parentSchema, name, dataSource,
+        SqlDialectFactoryImpl.INSTANCE, catalog, schema);
+  }
+
+  public static JdbcSchema create(
+      SchemaPlus parentSchema,
+      String name,
+      DataSource dataSource,
+      SqlDialectFactory dialectFactory,
+      String catalog,
+      String schema) {
     final Expression expression =
         Schemas.subSchemaExpression(parentSchema, name, JdbcSchema.class);
-    final SqlDialect dialect = createDialect(dataSource);
+    final SqlDialect dialect = createDialect(dialectFactory, dataSource);
     final JdbcConvention convention =
         JdbcConvention.of(dialect, expression, name);
     return new JdbcSchema(dataSource, dialect, convention, catalog, schema);
@@ -130,13 +166,35 @@ public class JdbcSchema implements Schema {
     }
     String jdbcCatalog = (String) operand.get("jdbcCatalog");
     String jdbcSchema = (String) operand.get("jdbcSchema");
-    return JdbcSchema.create(
-        parentSchema, name, dataSource, jdbcCatalog, jdbcSchema);
+    String sqlDialectFactory = (String) operand.get("sqlDialectFactory");
+
+    if (sqlDialectFactory == null || sqlDialectFactory.isEmpty()) {
+      return JdbcSchema.create(
+          parentSchema, name, dataSource, jdbcCatalog, jdbcSchema);
+    } else {
+      SqlDialectFactory factory = AvaticaUtils.instantiatePlugin(
+          SqlDialectFactory.class, sqlDialectFactory);
+      return JdbcSchema.create(
+          parentSchema, name, dataSource, factory, jdbcCatalog, jdbcSchema);
+    }
+  }
+
+  /**
+   * Returns a suitable SQL dialect for the given data source.
+   *
+   * @param dataSource The data source
+   *
+   * @deprecated Use {@link #createDialect(SqlDialectFactory, DataSource)} instead
+   */
+  @Deprecated // to be removed before 2.0
+  public static SqlDialect createDialect(DataSource dataSource) {
+    return createDialect(SqlDialectFactoryImpl.INSTANCE, dataSource);
   }
 
   /** Returns a suitable SQL dialect for the given data source. */
-  public static SqlDialect createDialect(DataSource dataSource) {
-    return JdbcUtils.DialectPool.INSTANCE.get(dataSource);
+  public static SqlDialect createDialect(SqlDialectFactory dialectFactory,
+      DataSource dataSource) {
+    return JdbcUtils.DialectPool.INSTANCE.get(dialectFactory, dataSource);
   }
 
   /** Creates a JDBC data source with the given specification. */
@@ -154,8 +212,9 @@ public class JdbcSchema implements Schema {
     return false;
   }
 
-  public boolean contentsHaveChangedSince(long lastCheck, long now) {
-    return false;
+  public Schema snapshot(SchemaVersion version) {
+    return new JdbcSchema(dataSource, dialect, convention, catalog, schema,
+        tableMap);
   }
 
   // Used by generated code.
@@ -185,19 +244,31 @@ public class JdbcSchema implements Schema {
     ResultSet resultSet = null;
     try {
       connection = dataSource.getConnection();
-      DatabaseMetaData metaData = connection.getMetaData();
-      resultSet = metaData.getTables(
-          catalog,
-          schema,
-          null,
-          null);
+      final Pair<String, String> catalogSchema = getCatalogSchema(connection);
+      final String catalog = catalogSchema.left;
+      final String schema = catalogSchema.right;
+      final Iterable<MetaImpl.MetaTable> tableDefs;
+      if (THREAD_METADATA.get() != null) {
+        tableDefs = THREAD_METADATA.get().apply(catalog, schema);
+      } else {
+        final List<MetaImpl.MetaTable> tableDefList = new ArrayList<>();
+        final DatabaseMetaData metaData = connection.getMetaData();
+        resultSet = metaData.getTables(catalog, schema, null, null);
+        while (resultSet.next()) {
+          final String catalogName = resultSet.getString(1);
+          final String schemaName = resultSet.getString(2);
+          final String tableName = resultSet.getString(3);
+          final String tableTypeName = resultSet.getString(4);
+          tableDefList.add(
+              new MetaImpl.MetaTable(catalogName, schemaName, tableName,
+                  tableTypeName));
+        }
+        tableDefs = tableDefList;
+      }
+
       final ImmutableMap.Builder<String, JdbcTable> builder =
           ImmutableMap.builder();
-      while (resultSet.next()) {
-        final String tableName = resultSet.getString(3);
-        final String catalogName = resultSet.getString(1);
-        final String schemaName = resultSet.getString(2);
-        final String tableTypeName = resultSet.getString(4);
+      for (MetaImpl.MetaTable tableDef : tableDefs) {
         // Clean up table type. In particular, this ensures that 'SYSTEM TABLE',
         // returned by Phoenix among others, maps to TableType.SYSTEM_TABLE.
         // We know enum constants are upper-case without spaces, so we can't
@@ -208,17 +279,18 @@ public class JdbcSchema implements Schema {
         // The tables are not designed to be queried by users, however we do
         // not filter them as we keep all the other table types.
         final String tableTypeName2 =
-            tableTypeName == null
+            tableDef.tableType == null
             ? null
-            : tableTypeName.toUpperCase().replace(' ', '_');
+            : tableDef.tableType.toUpperCase(Locale.ROOT).replace(' ', '_');
         final TableType tableType =
             Util.enumVal(TableType.OTHER, tableTypeName2);
         if (tableType == TableType.OTHER  && tableTypeName2 != null) {
           System.out.println("Unknown table type: " + tableTypeName2);
         }
         final JdbcTable table =
-            new JdbcTable(this, catalogName, schemaName, tableName, tableType);
-        builder.put(tableName, table);
+            new JdbcTable(this, tableDef.tableCat, tableDef.tableSchem,
+                tableDef.tableName, tableType);
+        builder.put(tableDef.tableName, table);
       }
       return builder.build();
     } catch (SQLException e) {
@@ -227,6 +299,46 @@ public class JdbcSchema implements Schema {
     } finally {
       close(connection, null, resultSet);
     }
+  }
+
+  /** Returns [major, minor] version from a database metadata. */
+  private List<Integer> version(DatabaseMetaData metaData) throws SQLException {
+    return ImmutableList.of(metaData.getJDBCMajorVersion(),
+        metaData.getJDBCMinorVersion());
+  }
+
+  /** Returns a pair of (catalog, schema) for the current connection. */
+  private Pair<String, String> getCatalogSchema(Connection connection)
+      throws SQLException {
+    final DatabaseMetaData metaData = connection.getMetaData();
+    final List<Integer> version41 = ImmutableList.of(4, 1); // JDBC 4.1
+    String catalog = this.catalog;
+    String schema = this.schema;
+    final boolean jdbc41OrAbove =
+        VERSION_ORDERING.compare(version(metaData), version41) >= 0;
+    if (catalog == null && jdbc41OrAbove) {
+      // From JDBC 4.1, catalog and schema can be retrieved from the connection
+      // object, hence try to get it from there if it was not specified by user
+      catalog = connection.getCatalog();
+    }
+    if (schema == null && jdbc41OrAbove) {
+      schema = connection.getSchema();
+      if ("".equals(schema)) {
+        schema = null; // PostgreSQL returns useless "" sometimes
+      }
+    }
+    if ((catalog == null || schema == null)
+        && metaData.getDatabaseProductName().equals("PostgreSQL")) {
+      final String sql = "select current_database(), current_schema()";
+      try (Statement statement = connection.createStatement();
+           ResultSet resultSet = statement.executeQuery(sql)) {
+        if (resultSet.next()) {
+          catalog = resultSet.getString(1);
+          schema = resultSet.getString(2);
+        }
+      }
+    }
+    return Pair.of(catalog, schema);
   }
 
   public Table getTable(String name) {
@@ -263,7 +375,7 @@ public class JdbcSchema implements Schema {
     // proto-type will be copied into a real type factory.
     final RelDataTypeFactory typeFactory =
         new SqlTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
-    final RelDataTypeFactory.FieldInfoBuilder fieldInfo = typeFactory.builder();
+    final RelDataTypeFactory.Builder fieldInfo = typeFactory.builder();
     while (resultSet.next()) {
       final String columnName = resultSet.getString(4);
       final int dataType = resultSet.getInt(5);
@@ -283,7 +395,7 @@ public class JdbcSchema implements Schema {
       }
       RelDataType sqlType =
           sqlType(typeFactory, dataType, precision, scale, typeString);
-      boolean nullable = resultSet.getBoolean(11);
+      boolean nullable = resultSet.getInt(11) != DatabaseMetaData.columnNoNulls;
       fieldInfo.add(columnName, sqlType).nullable(nullable);
     }
     resultSet.close();
@@ -361,7 +473,20 @@ public class JdbcSchema implements Schema {
   public Set<String> getTableNames() {
     // This method is called during a cache refresh. We can take it as a signal
     // that we need to re-build our own cache.
-    return getTableMap(true).keySet();
+    return getTableMap(!snapshot).keySet();
+  }
+
+  protected Map<String, RelProtoDataType> getTypes() {
+    // TODO: populate map from JDBC metadata
+    return ImmutableMap.of();
+  }
+
+  @Override public RelProtoDataType getType(String name) {
+    return getTypes().get(name);
+  }
+
+  @Override public Set<String> getTypeNames() {
+    return getTypes().keySet();
   }
 
   public Schema getSubSchema(String name) {
@@ -400,27 +525,28 @@ public class JdbcSchema implements Schema {
 
   /** Schema factory that creates a
    * {@link org.apache.calcite.adapter.jdbc.JdbcSchema}.
-   * This allows you to create a jdbc schema inside a model.json file.
    *
-   * <pre>{@code
+   * <p>This allows you to create a jdbc schema inside a model.json file, like
+   * this:
+   *
+   * <blockquote><pre>
    * {
-   *   version: '1.0',
-   *   defaultSchema: 'FOODMART_CLONE',
-   *   schemas: [
+   *   "version": "1.0",
+   *   "defaultSchema": "FOODMART_CLONE",
+   *   "schemas": [
    *     {
-   *       name: 'FOODMART_CLONE',
-   *       type: 'custom',
-   *       factory: 'org.apache.calcite.adapter.jdbc.JdbcSchema$Factory',
-   *       operand: {
-   *         jdbcDriver: 'com.mysql.jdbc.Driver',
-   *         jdbcUrl: 'jdbc:mysql://localhost/foodmart',
-   *         jdbcUser: 'foodmart',
-   *         jdbcPassword: 'foodmart'
+   *       "name": "FOODMART_CLONE",
+   *       "type": "custom",
+   *       "factory": "org.apache.calcite.adapter.jdbc.JdbcSchema$Factory",
+   *       "operand": {
+   *         "jdbcDriver": "com.mysql.jdbc.Driver",
+   *         "jdbcUrl": "jdbc:mysql://localhost/foodmart",
+   *         "jdbcUser": "foodmart",
+   *         "jdbcPassword": "foodmart"
    *       }
    *     }
    *   ]
-   * }
-   * }</pre>
+   * }</pre></blockquote>
    */
   public static class Factory implements SchemaFactory {
     public static final Factory INSTANCE = new Factory();
@@ -433,6 +559,12 @@ public class JdbcSchema implements Schema {
         Map<String, Object> operand) {
       return JdbcSchema.create(parentSchema, name, operand);
     }
+  }
+
+  /** Do not use */
+  @Experimental
+  public interface Foo
+      extends BiFunction<String, String, Iterable<MetaImpl.MetaTable>> {
   }
 }
 

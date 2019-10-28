@@ -30,8 +30,7 @@ import java.util.List;
 public class HepProgramBuilder {
   //~ Instance fields --------------------------------------------------------
 
-  private final List<HepInstruction> instructions =
-      new ArrayList<HepInstruction>();
+  private final List<HepInstruction> instructions = new ArrayList<>();
 
   private HepInstruction.BeginGroup group;
 
@@ -40,7 +39,7 @@ public class HepProgramBuilder {
   /**
    * Creates a new HepProgramBuilder with an initially empty program. The
    * program under construction has an initial match order of
-   * {@link HepMatchOrder#ARBITRARY}, and an initial match limit of
+   * {@link HepMatchOrder#DEPTH_FIRST}, and an initial match limit of
    * {@link HepProgram#MATCH_UNTIL_FIXPOINT}.
    */
   public HepProgramBuilder() {

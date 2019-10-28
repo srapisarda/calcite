@@ -28,16 +28,17 @@ esac
 
 # Build classpath on first call.
 # (To force rebuild, remove target/fullclasspath.txt.)
+# Remove slf4j-log4j, otherwise slf4j complains about multiple bindings.
 cd $(dirname $0)
 if [ ! -f target/fullclasspath.txt ]; then
-    mvn dependency:build-classpath -Dmdep.outputFile=target/classpath.txt
-    awk -v RS=: -v ORS=: '{if(!m[$0]) {m[$0]=1; print}}' \
+    ./mvnw dependency:build-classpath -Dmdep.outputFile=target/classpath.txt
+    awk -v RS=: -v ORS=: '{if (!m[$0] && $0 !~ /slf4j-log4j12/) {m[$0]=1; print}}' \
         target/classpath.txt \
         */target/classpath.txt > target/fullclasspath.txt
 fi
 
 CP=
-for module in core avatica cassandra druid elasticsearch mongodb spark splunk example/csv example/function; do
+for module in core cassandra druid elasticsearch file kafka mongodb server spark splunk geode example/csv example/function; do
   CP=${CP}${module}/target/classes:
   CP=${CP}${module}/target/test-classes:
 done

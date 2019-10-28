@@ -19,7 +19,7 @@ package org.apache.calcite.rel.rules;
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.JoinRelType;
-import org.apache.calcite.rel.core.SemiJoin;
+import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.metadata.RelColumnOrigin;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
@@ -34,7 +34,6 @@ import org.apache.calcite.util.ImmutableIntList;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -164,7 +163,7 @@ public class LoptMultiJoin {
   /**
    * The semijoins that allow the join of a dimension table to be removed
    */
-  SemiJoin[] joinRemovalSemiJoins;
+  LogicalJoin[] joinRemovalSemiJoins;
 
   /**
    * Set of null-generating factors whose corresponding outer join can be
@@ -233,7 +232,7 @@ public class LoptMultiJoin {
     factory = multiJoin.getCluster().getTypeFactory();
 
     joinRemovalFactors = new Integer[nJoinFactors];
-    joinRemovalSemiJoins = new SemiJoin[nJoinFactors];
+    joinRemovalSemiJoins = new LogicalJoin[nJoinFactors];
 
     removableOuterJoinFactors = new HashSet<>();
     removableSelfJoinPairs = new HashMap<>();
@@ -346,7 +345,7 @@ public class LoptMultiJoin {
    * in a left or right outer join
    */
   public boolean isNullGenerating(int factIdx) {
-    return joinTypes.get(factIdx) != JoinRelType.INNER;
+    return joinTypes.get(factIdx).isOuterJoin();
   }
 
   /**
@@ -405,7 +404,7 @@ public class LoptMultiJoin {
    * @return the semijoin that allows the join of a dimension table to be
    * removed
    */
-  public SemiJoin getJoinRemovalSemiJoin(int dimIdx) {
+  public LogicalJoin getJoinRemovalSemiJoin(int dimIdx) {
     return joinRemovalSemiJoins[dimIdx];
   }
 
@@ -427,7 +426,7 @@ public class LoptMultiJoin {
    * @param dimIdx id of the dimension factor
    * @param semiJoin the semijoin
    */
-  public void setJoinRemovalSemiJoin(int dimIdx, SemiJoin semiJoin) {
+  public void setJoinRemovalSemiJoin(int dimIdx, LogicalJoin semiJoin) {
     joinRemovalSemiJoins[dimIdx] = semiJoin;
   }
 
@@ -462,8 +461,8 @@ public class LoptMultiJoin {
    * references
    */
   private void setJoinFilterRefs() {
-    fieldsRefByJoinFilter = Maps.newHashMap();
-    factorsRefByJoinFilter = Maps.newHashMap();
+    fieldsRefByJoinFilter = new HashMap<>();
+    factorsRefByJoinFilter = new HashMap<>();
     ListIterator<RexNode> filterIter = allJoinFilters.listIterator();
     while (filterIter.hasNext()) {
       RexNode joinFilter = filterIter.next();
@@ -701,7 +700,7 @@ public class LoptMultiJoin {
     // First, locate the originating column for all simple column
     // references in the left factor.
     final RelNode left = getJoinFactor(leftFactor);
-    final RelMetadataQuery mq = RelMetadataQuery.instance();
+    final RelMetadataQuery mq = left.getCluster().getMetadataQuery();
     final Map<Integer, Integer> leftFactorColMapping = new HashMap<>();
     for (int i = 0; i < left.getRowType().getFieldCount(); i++) {
       final RelColumnOrigin colOrigin = mq.getColumnOrigin(left, i);

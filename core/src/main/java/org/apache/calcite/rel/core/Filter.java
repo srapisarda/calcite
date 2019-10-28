@@ -16,11 +16,11 @@
  */
 package org.apache.calcite.rel.core;
 
+import org.apache.calcite.config.CalciteSystemProperty;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelOptCost;
 import org.apache.calcite.plan.RelOptPlanner;
 import org.apache.calcite.plan.RelTraitSet;
-import org.apache.calcite.prepare.CalcitePrepareImpl;
 import org.apache.calcite.rel.RelInput;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
@@ -74,7 +74,7 @@ public abstract class Filter extends SingleRel {
     assert RexUtil.isFlat(condition) : condition;
     this.condition = condition;
     // Too expensive for everyday use:
-    assert !CalcitePrepareImpl.DEBUG || isValid(Litmus.THROW);
+    assert !CalciteSystemProperty.DEBUG.value() || isValid(Litmus.THROW, null);
   }
 
   /**
@@ -111,11 +111,12 @@ public abstract class Filter extends SingleRel {
     return condition;
   }
 
-  @Override public boolean isValid(Litmus litmus) {
+  @Override public boolean isValid(Litmus litmus, Context context) {
     if (RexUtil.isNullabilityCast(getCluster().getTypeFactory(), condition)) {
       return litmus.fail("Cast for just nullability not allowed");
     }
-    final RexChecker checker = new RexChecker(getInput().getRowType(), litmus);
+    final RexChecker checker =
+        new RexChecker(getInput().getRowType(), context, litmus);
     condition.accept(checker);
     if (checker.getFailureCount() > 0) {
       return litmus.fail(null);
@@ -137,13 +138,13 @@ public abstract class Filter extends SingleRel {
 
   @Deprecated // to be removed before 2.0
   public static double estimateFilteredRows(RelNode child, RexProgram program) {
-    final RelMetadataQuery mq = RelMetadataQuery.instance();
+    final RelMetadataQuery mq = child.getCluster().getMetadataQuery();
     return RelMdUtil.estimateFilteredRows(child, program, mq);
   }
 
   @Deprecated // to be removed before 2.0
   public static double estimateFilteredRows(RelNode child, RexNode condition) {
-    final RelMetadataQuery mq = RelMetadataQuery.instance();
+    final RelMetadataQuery mq = child.getCluster().getMetadataQuery();
     return RelMdUtil.estimateFilteredRows(child, condition, mq);
   }
 

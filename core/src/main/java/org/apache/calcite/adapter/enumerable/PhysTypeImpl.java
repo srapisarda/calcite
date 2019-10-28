@@ -39,18 +39,15 @@ import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.Util;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
 import java.util.AbstractList;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
-import static org.apache.calcite.adapter.enumerable.EnumUtils.javaRowClass;
 import static org.apache.calcite.adapter.enumerable.EnumUtils.overridingMethodDecl;
 
 /** Implementation of {@link PhysType}. */
@@ -72,7 +69,8 @@ public class PhysTypeImpl implements PhysType {
     this.javaRowClass = javaRowClass;
     this.format = format;
     for (RelDataTypeField field : rowType.getFieldList()) {
-      fieldClasses.add(javaRowClass(typeFactory, field.getType()));
+      Type fieldType = typeFactory.getJavaClass(field.getType());
+      fieldClasses.add(fieldType instanceof Class ? (Class) fieldType : Object[].class);
     }
   }
 
@@ -98,7 +96,7 @@ public class PhysTypeImpl implements PhysType {
   static PhysType of(
       final JavaTypeFactory typeFactory,
       Type javaRowClass) {
-    final RelDataTypeFactory.FieldInfoBuilder builder = typeFactory.builder();
+    final RelDataTypeFactory.Builder builder = typeFactory.builder();
     if (javaRowClass instanceof Types.RecordType) {
       final Types.RecordType recordType = (Types.RecordType) javaRowClass;
       for (Types.RecordField field : recordType.getRecordFields()) {
@@ -121,7 +119,7 @@ public class PhysTypeImpl implements PhysType {
 
   public PhysType project(List<Integer> integers, boolean indicator,
       JavaRowFormat format) {
-    final RelDataTypeFactory.FieldInfoBuilder builder = typeFactory.builder();
+    final RelDataTypeFactory.Builder builder = typeFactory.builder();
     for (int index : integers) {
       builder.add(rowType.getFieldList().get(index));
     }
@@ -173,7 +171,7 @@ public class PhysTypeImpl implements PhysType {
       JavaRowFormat targetFormat) {
     final PhysType targetPhysType =
         project(fields, true, targetFormat);
-    final List<Expression> expressions = Lists.newArrayList();
+    final List<Expression> expressions = new ArrayList<>();
     for (Ord<Integer> ord : Ord.zip(fields)) {
       final Integer field = ord.e;
       if (usedFields.contains(field)) {
@@ -193,7 +191,7 @@ public class PhysTypeImpl implements PhysType {
         targetPhysType.record(expressions), parameter);
   }
 
-  public Expression selector(
+  public Pair<Type, List<Expression>> selector(
       ParameterExpression parameter,
       List<Integer> fields,
       JavaRowFormat targetFormat) {
@@ -210,9 +208,10 @@ public class PhysTypeImpl implements PhysType {
         project(fields, targetFormat);
     switch (format) {
     case SCALAR:
-      return parameter;
+      return Pair.of(parameter.getType(), ImmutableList.of(parameter));
     default:
-      return targetPhysType.record(fieldReferences(parameter, fields));
+      return Pair.of(targetPhysType.getJavaRowType(),
+          fieldReferences(parameter, fields));
     }
   }
 
@@ -220,9 +219,9 @@ public class PhysTypeImpl implements PhysType {
     final List<Expression> expressions = new ArrayList<>();
     for (int field : argList) {
       expressions.add(
-          Types.castIfNecessary(
-              fieldClass(field),
-              fieldReference(v1, field)));
+          RexToLixTranslator.convert(
+              fieldReference(v1, field),
+              fieldClass(field)));
     }
     return expressions;
   }
@@ -236,16 +235,32 @@ public class PhysTypeImpl implements PhysType {
         Primitive.box(javaRowClass), format);
   }
 
+  @SuppressWarnings("deprecation")
   public Expression convertTo(Expression exp, PhysType targetPhysType) {
-    final JavaRowFormat targetFormat = targetPhysType.getFormat();
+    return convertTo(exp, targetPhysType.getFormat());
+  }
+
+  public Expression convertTo(Expression exp, JavaRowFormat targetFormat) {
     if (format == targetFormat) {
       return exp;
     }
     final ParameterExpression o_ =
         Expressions.parameter(javaRowClass, "o");
     final int fieldCount = rowType.getFieldCount();
-    return Expressions.call(exp, BuiltInMethod.SELECT.method,
-        generateSelector(o_, Util.range(fieldCount), targetFormat));
+    // The conversion must be strict so optimizations of the targetFormat should not be performed
+    // by the code that follows. If necessary the target format can be optimized before calling
+    // this method.
+    PhysType targetPhysType = PhysTypeImpl.of(typeFactory, rowType, targetFormat, false);
+    final Expression selector;
+    switch (targetPhysType.getFormat()) {
+    case SCALAR:
+      selector = Expressions.call(BuiltInMethod.IDENTITY_SELECTOR.method);
+      break;
+    default:
+      selector = Expressions.lambda(Function1.class,
+          targetPhysType.record(fieldReferences(o_, Util.range(fieldCount))), o_);
+    }
+    return Expressions.call(exp, BuiltInMethod.SELECT.method, selector);
   }
 
   public Pair<Expression, Expression> generateCollationKey(
@@ -260,8 +275,7 @@ public class PhysTypeImpl implements PhysType {
               Function1.class,
               fieldReference(parameter, collation.getFieldIndex()),
               parameter);
-      return Pair.<Expression, Expression>of(
-          selector,
+      return Pair.of(selector,
           Expressions.call(
               BuiltInMethod.NULLS_COMPARATOR.method,
               Expressions.constant(
@@ -294,8 +308,8 @@ public class PhysTypeImpl implements PhysType {
       Expression arg1 = fieldReference(parameterV1, index);
       switch (Primitive.flavor(fieldClass(index))) {
       case OBJECT:
-        arg0 = Types.castIfNecessary(Comparable.class, arg0);
-        arg1 = Types.castIfNecessary(Comparable.class, arg1);
+        arg0 = RexToLixTranslator.convert(arg0, Comparable.class);
+        arg1 = RexToLixTranslator.convert(arg1, Comparable.class);
       }
       final boolean nullsFirst =
           collation.nullDirection
@@ -330,7 +344,7 @@ public class PhysTypeImpl implements PhysType {
         Expressions.return_(null, Expressions.constant(0)));
 
     final List<MemberDeclaration> memberDeclarations =
-        Expressions.<MemberDeclaration>list(
+        Expressions.list(
             Expressions.methodDecl(
                 Modifier.PUBLIC,
                 int.class,
@@ -364,11 +378,9 @@ public class PhysTypeImpl implements PhysType {
               ImmutableList.of(parameterO0, parameterO1),
               bridgeBody.toBlock()));
     }
-    return Pair.<Expression, Expression>of(
-        selector,
-        Expressions.new_(
-            Comparator.class,
-            Collections.<Expression>emptyList(),
+    return Pair.of(selector,
+        Expressions.new_(Comparator.class,
+            ImmutableList.of(),
             memberDeclarations));
   }
 
@@ -395,8 +407,8 @@ public class PhysTypeImpl implements PhysType {
       Expression arg1 = fieldReference(parameterV1, index);
       switch (Primitive.flavor(fieldClass(index))) {
       case OBJECT:
-        arg0 = Types.castIfNecessary(Comparable.class, arg0);
-        arg1 = Types.castIfNecessary(Comparable.class, arg1);
+        arg0 = RexToLixTranslator.convert(arg0, Comparable.class);
+        arg1 = RexToLixTranslator.convert(arg1, Comparable.class);
       }
       final boolean nullsFirst =
           fieldCollation.nullDirection
@@ -431,7 +443,7 @@ public class PhysTypeImpl implements PhysType {
         Expressions.return_(null, Expressions.constant(0)));
 
     final List<MemberDeclaration> memberDeclarations =
-        Expressions.<MemberDeclaration>list(
+        Expressions.list(
             Expressions.methodDecl(
                 Modifier.PUBLIC,
                 int.class,
@@ -466,7 +478,7 @@ public class PhysTypeImpl implements PhysType {
     }
     return Expressions.new_(
         Comparator.class,
-        Collections.<Expression>emptyList(),
+        ImmutableList.of(),
         memberDeclarations);
   }
 
@@ -554,9 +566,9 @@ public class PhysTypeImpl implements PhysType {
       // }
       Class returnType = fieldClasses.get(field0);
       Expression fieldReference =
-          Types.castIfNecessary(
-              returnType,
-              fieldReference(v1, field0));
+          RexToLixTranslator.convert(
+              fieldReference(v1, field0),
+              returnType);
       return Expressions.lambda(
           Function1.class,
           fieldReference,
@@ -640,10 +652,17 @@ public class PhysTypeImpl implements PhysType {
 
   public Expression fieldReference(
       Expression expression, int field, Type storageType) {
+    Type fieldType;
     if (storageType == null) {
       storageType = fieldClass(field);
+      fieldType = null;
+    } else {
+      fieldType = fieldClass(field);
+      if (fieldType != java.sql.Date.class) {
+        fieldType = null;
+      }
     }
-    return format.field(expression, field, storageType);
+    return format.field(expression, field, fieldType, storageType);
   }
 }
 

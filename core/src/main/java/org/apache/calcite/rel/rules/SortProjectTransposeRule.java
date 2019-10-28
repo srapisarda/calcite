@@ -19,15 +19,24 @@ package org.apache.calcite.rel.rules;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
+import org.apache.calcite.plan.RelOptRuleOperand;
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollationTraitDef;
+import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Project;
+import org.apache.calcite.rel.core.RelFactories;
 import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.logical.LogicalProject;
+import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexCallBinding;
+import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexUtil;
+import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.validate.SqlMonotonicity;
+import org.apache.calcite.tools.RelBuilderFactory;
 import org.apache.calcite.util.mapping.Mappings;
 
 import com.google.common.collect.ImmutableList;
@@ -44,7 +53,8 @@ import java.util.Map;
  */
 public class SortProjectTransposeRule extends RelOptRule {
   public static final SortProjectTransposeRule INSTANCE =
-      new SortProjectTransposeRule(Sort.class, LogicalProject.class, null);
+      new SortProjectTransposeRule(Sort.class, LogicalProject.class,
+          RelFactories.LOGICAL_BUILDER, null);
 
   //~ Constructors -----------------------------------------------------------
 
@@ -52,18 +62,37 @@ public class SortProjectTransposeRule extends RelOptRule {
   public SortProjectTransposeRule(
       Class<? extends Sort> sortClass,
       Class<? extends Project> projectClass) {
-    this(sortClass, projectClass, null);
+    this(sortClass, projectClass, RelFactories.LOGICAL_BUILDER, null);
   }
 
-  /** Creates a SortProjectTransposeRule.*/
+  @Deprecated // to be removed before 2.0
   public SortProjectTransposeRule(
       Class<? extends Sort> sortClass,
       Class<? extends Project> projectClass,
       String description) {
-    super(
+    this(sortClass, projectClass, RelFactories.LOGICAL_BUILDER, description);
+  }
+
+  /** Creates a SortProjectTransposeRule. */
+  public SortProjectTransposeRule(
+      Class<? extends Sort> sortClass,
+      Class<? extends Project> projectClass,
+      RelBuilderFactory relBuilderFactory, String description) {
+    this(
         operand(sortClass,
             operand(projectClass, any())),
-        description);
+        relBuilderFactory, description);
+  }
+
+  /** Creates a SortProjectTransposeRule with an operand. */
+  protected SortProjectTransposeRule(RelOptRuleOperand operand,
+      RelBuilderFactory relBuilderFactory, String description) {
+    super(operand, relBuilderFactory, description);
+  }
+
+  @Deprecated // to be removed before 2.0
+  protected SortProjectTransposeRule(RelOptRuleOperand operand) {
+    super(operand);
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -80,11 +109,22 @@ public class SortProjectTransposeRule extends RelOptRule {
     // Determine mapping between project input and output fields. If sort
     // relies on non-trivial expressions, we can't push.
     final Mappings.TargetMapping map =
-        RelOptUtil.permutation(
+        RelOptUtil.permutationIgnoreCast(
             project.getProjects(), project.getInput().getRowType());
     for (RelFieldCollation fc : sort.getCollation().getFieldCollations()) {
       if (map.getTargetOpt(fc.getFieldIndex()) < 0) {
         return;
+      }
+      final RexNode node = project.getProjects().get(fc.getFieldIndex());
+      if (node.isA(SqlKind.CAST)) {
+        // Check whether it is a monotonic preserving cast, otherwise we cannot push
+        final RexCall cast = (RexCall) node;
+        final RexCallBinding binding =
+            RexCallBinding.create(cluster.getTypeFactory(), cast,
+                ImmutableList.of(RelCollations.of(RexUtil.apply(map, fc))));
+        if (cast.getOperator().getMonotonicity(binding) == SqlMonotonicity.NOT_MONOTONIC) {
+          return;
+        }
       }
     }
     final RelCollation newCollation =
@@ -100,7 +140,7 @@ public class SortProjectTransposeRule extends RelOptRule {
     RelNode newProject =
         project.copy(
             sort.getTraitSet(),
-            ImmutableList.<RelNode>of(newSort));
+            ImmutableList.of(newSort));
     // Not only is newProject equivalent to sort;
     // newSort is equivalent to project's input
     // (but only if the sort is not also applying an offset/limit).

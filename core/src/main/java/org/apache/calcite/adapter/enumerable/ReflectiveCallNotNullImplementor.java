@@ -18,7 +18,6 @@ package org.apache.calcite.adapter.enumerable;
 
 import org.apache.calcite.linq4j.tree.Expression;
 import org.apache.calcite.linq4j.tree.Expressions;
-import org.apache.calcite.linq4j.tree.NewExpression;
 import org.apache.calcite.rex.RexCall;
 
 import java.lang.reflect.Method;
@@ -48,17 +47,34 @@ public class ReflectiveCallNotNullImplementor implements NotNullImplementor {
       RexCall call, List<Expression> translatedOperands) {
     translatedOperands =
         EnumUtils.fromInternal(method.getParameterTypes(), translatedOperands);
+    final Expression callExpr;
     if ((method.getModifiers() & Modifier.STATIC) != 0) {
-      return Expressions.call(method, translatedOperands);
+      callExpr = Expressions.call(method, translatedOperands);
     } else {
       // The UDF class must have a public zero-args constructor.
       // Assume that the validator checked already.
-      final NewExpression target =
+      final Expression target =
           Expressions.new_(method.getDeclaringClass());
-      return Expressions.call(target, method, translatedOperands);
+      callExpr = Expressions.call(target, method, translatedOperands);
     }
+    if (!containsCheckedException(method)) {
+      return callExpr;
+    }
+    return translator.handleMethodCheckedExceptions(callExpr);
   }
 
+  private boolean containsCheckedException(Method method) {
+    Class[] exceptions = method.getExceptionTypes();
+    if (exceptions == null || exceptions.length == 0) {
+      return false;
+    }
+    for (Class clazz : exceptions) {
+      if (!RuntimeException.class.isAssignableFrom(clazz)) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
 
 // End ReflectiveCallNotNullImplementor.java

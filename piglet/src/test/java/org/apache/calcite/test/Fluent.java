@@ -24,14 +24,14 @@ import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.tools.PigRelBuilder;
 import org.apache.calcite.util.Util;
 
-import com.google.common.base.Function;
-import com.google.common.collect.Lists;
+import com.google.common.collect.Ordering;
 
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
+import java.util.function.Function;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertThat;
@@ -40,7 +40,7 @@ import static org.junit.Assert.assertThat;
 class Fluent {
   private final String pig;
 
-  public Fluent(String pig) {
+  Fluent(String pig) {
     this.pig = pig;
   }
 
@@ -59,39 +59,33 @@ class Fluent {
 
   public Fluent returns(final String out)
       throws ParseException {
-    return returns(
-        new Function<String, Void>() {
-          public Void apply(String s) {
-            assertThat(s, is(out));
-            return null;
-          }
-        });
+    return returns(s -> {
+      assertThat(s, is(out));
+      return null;
+    });
   }
 
   public Fluent returnsUnordered(String... lines) throws ParseException {
-    final List<String> expectedLines = Lists.newArrayList(lines);
-    Collections.sort(expectedLines);
-    return returns(
-        new Function<String, Void>() {
-          public Void apply(String s) {
-            final List<String> actualLines = new ArrayList<>();
-            for (;;) {
-              int i = s.indexOf('\n');
-              if (i < 0) {
-                if (!s.isEmpty()) {
-                  actualLines.add(s);
-                }
-                break;
-              } else {
-                actualLines.add(s.substring(0, i));
-                s = s.substring(i + 1);
-              }
-            }
-            Collections.sort(actualLines);
-            assertThat(actualLines, is(expectedLines));
-            return null;
+    final List<String> expectedLines =
+        Ordering.natural().immutableSortedCopy(Arrays.asList(lines));
+    return returns(s -> {
+      final List<String> actualLines = new ArrayList<>();
+      for (;;) {
+        int i = s.indexOf('\n');
+        if (i < 0) {
+          if (!s.isEmpty()) {
+            actualLines.add(s);
           }
-        });
+          break;
+        } else {
+          actualLines.add(s.substring(0, i));
+          s = s.substring(i + 1);
+        }
+      }
+      assertThat(Ordering.natural().sortedCopy(actualLines),
+          is(expectedLines));
+      return null;
+    });
   }
 
   public Fluent returns(Function<String, Void> checker) throws ParseException {

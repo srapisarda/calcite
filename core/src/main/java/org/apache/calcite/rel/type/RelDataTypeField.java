@@ -28,6 +28,35 @@ import java.util.Map;
  * and {@link #getValue()} must be equivalent to {@link #getType()}.
  */
 public interface RelDataTypeField extends Map.Entry<String, RelDataType> {
+
+  /**
+   * Function to transform a set of {@link RelDataTypeField} to
+   * a set of {@link Integer} of the field keys.
+   *
+   * @deprecated Use {@code RelDataTypeField::getIndex}
+   */
+  @Deprecated // to be removed before 2.0
+  class ToFieldIndex
+      implements com.google.common.base.Function<RelDataTypeField, Integer> {
+    @Override public Integer apply(RelDataTypeField o) {
+      return o.getIndex();
+    }
+  }
+
+  /**
+   * Function to transform a set of {@link RelDataTypeField} to
+   * a set of {@link String} of the field names.
+   *
+   * @deprecated Use {@code RelDataTypeField::getName}
+   */
+  @Deprecated // to be removed before 2.0
+  class ToFieldName
+      implements com.google.common.base.Function<RelDataTypeField, String> {
+    @Override public String apply(RelDataTypeField o) {
+      return o.getName();
+    }
+  }
+
   //~ Methods ----------------------------------------------------------------
 
   /**

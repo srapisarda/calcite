@@ -16,7 +16,7 @@
  */
 
 /**
- * Query provider based on an Elasticsearch DB.
+ * Query provider based on an Elasticsearch2 DB.
  */
 @PackageMarker
 package org.apache.calcite.adapter.elasticsearch;

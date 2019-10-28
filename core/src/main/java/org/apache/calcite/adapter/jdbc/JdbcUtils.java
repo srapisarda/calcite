@@ -21,10 +21,11 @@ import org.apache.calcite.avatica.util.DateTimeUtils;
 import org.apache.calcite.linq4j.function.Function0;
 import org.apache.calcite.linq4j.function.Function1;
 import org.apache.calcite.sql.SqlDialect;
+import org.apache.calcite.sql.SqlDialectFactory;
 import org.apache.calcite.util.ImmutableNullableList;
 import org.apache.calcite.util.Pair;
 
-import org.apache.commons.dbcp.BasicDataSource;
+import org.apache.commons.dbcp2.BasicDataSource;
 
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -58,15 +59,19 @@ final class JdbcUtils {
 
   /** Pool of dialects. */
   static class DialectPool {
-    final Map<DataSource, SqlDialect> map0 = new IdentityHashMap<>();
+    final Map<DataSource, Map<SqlDialectFactory, SqlDialect>> map0 = new IdentityHashMap<>();
     final Map<List, SqlDialect> map = new HashMap<>();
 
     public static final DialectPool INSTANCE = new DialectPool();
 
-    SqlDialect get(DataSource dataSource) {
-      final SqlDialect sqlDialect = map0.get(dataSource);
-      if (sqlDialect != null) {
-        return sqlDialect;
+    // TODO: Discuss why we need a pool. If we do, I'd like to improve performance
+    synchronized SqlDialect get(SqlDialectFactory dialectFactory, DataSource dataSource) {
+      Map<SqlDialectFactory, SqlDialect> dialectMap = map0.get(dataSource);
+      if (dialectMap != null) {
+        final SqlDialect sqlDialect = dialectMap.get(dialectFactory);
+        if (sqlDialect != null) {
+          return sqlDialect;
+        }
       }
       Connection connection = null;
       try {
@@ -74,12 +79,16 @@ final class JdbcUtils {
         DatabaseMetaData metaData = connection.getMetaData();
         String productName = metaData.getDatabaseProductName();
         String productVersion = metaData.getDatabaseProductVersion();
-        List key = ImmutableList.of(productName, productVersion);
+        List key = ImmutableList.of(productName, productVersion, dialectFactory);
         SqlDialect dialect = map.get(key);
         if (dialect == null) {
-          dialect = SqlDialect.create(metaData);
+          dialect = dialectFactory.create(metaData);
           map.put(key, dialect);
-          map0.put(dataSource, dialect);
+          if (dialectMap == null) {
+            dialectMap = new IdentityHashMap<>();
+            map0.put(dataSource, dialectMap);
+          }
+          dialectMap.put(dialectFactory, dialect);
         }
         connection.close();
         connection = null;
@@ -118,16 +127,14 @@ final class JdbcUtils {
 
     public static Function1<ResultSet, Function0<Object[]>> factory(
         final List<Pair<ColumnMetaData.Rep, Integer>> list) {
-      return new Function1<ResultSet, Function0<Object[]>>() {
-        public Function0<Object[]> apply(ResultSet resultSet) {
-          try {
-            return new ObjectArrayRowBuilder(
-                resultSet,
-                Pair.left(list).toArray(new ColumnMetaData.Rep[list.size()]),
-                Ints.toArray(Pair.right(list)));
-          } catch (SQLException e) {
-            throw new RuntimeException(e);
-          }
+      return resultSet -> {
+        try {
+          return new ObjectArrayRowBuilder(
+              resultSet,
+              Pair.left(list).toArray(new ColumnMetaData.Rep[list.size()]),
+              Ints.toArray(Pair.right(list)));
+        } catch (SQLException e) {
+          throw new RuntimeException(e);
         }
       };
     }
@@ -203,17 +210,18 @@ final class JdbcUtils {
     public static final DataSourcePool INSTANCE = new DataSourcePool();
 
     private final LoadingCache<List<String>, BasicDataSource> cache =
-        CacheBuilder.newBuilder().softValues().build(
-            new CacheLoader<List<String>, BasicDataSource>() {
-              @Override public BasicDataSource load(@Nonnull List<String> key) {
-                BasicDataSource dataSource = new BasicDataSource();
-                dataSource.setUrl(key.get(0));
-                dataSource.setUsername(key.get(1));
-                dataSource.setPassword(key.get(2));
-                dataSource.setDriverClassName(key.get(3));
-                return dataSource;
-              }
-            });
+        CacheBuilder.newBuilder().softValues()
+            .build(CacheLoader.from(DataSourcePool::dataSource));
+
+    private static @Nonnull BasicDataSource dataSource(
+          @Nonnull List<String> key) {
+      BasicDataSource dataSource = new BasicDataSource();
+      dataSource.setUrl(key.get(0));
+      dataSource.setUsername(key.get(1));
+      dataSource.setPassword(key.get(2));
+      dataSource.setDriverClassName(key.get(3));
+      return dataSource;
+    }
 
     public DataSource get(String url, String driverClassName,
         String username, String password) {

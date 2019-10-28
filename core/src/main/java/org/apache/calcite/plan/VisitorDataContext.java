@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.calcite.plan;
 
 import org.apache.calcite.DataContext;
@@ -27,9 +26,8 @@ import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.rex.RexUtil;
 import org.apache.calcite.schema.SchemaPlus;
-import org.apache.calcite.sql.SqlOperator;
-import org.apache.calcite.sql.fun.SqlCastFunction;
 import org.apache.calcite.util.NlsString;
 import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.trace.CalciteLogger;
@@ -37,8 +35,6 @@ import org.apache.calcite.util.trace.CalciteLogger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
-import java.sql.Date;
-import java.util.Calendar;
 import java.util.List;
 
 /**
@@ -111,13 +107,13 @@ public class VisitorDataContext implements DataContext {
   }
 
   public static Pair<Integer, ?> getValue(RexNode inputRef, RexNode literal) {
-    inputRef = removeCast(inputRef);
-    literal = removeCast(literal);
+    inputRef = inputRef == null ? null : RexUtil.removeCast(inputRef);
+    literal = literal == null ? null : RexUtil.removeCast(literal);
 
     if (inputRef instanceof RexInputRef
         && literal instanceof RexLiteral)  {
       final int index = ((RexInputRef) inputRef).getIndex();
-      Object value = ((RexLiteral) literal).getValue();
+      final RexLiteral rexLiteral = (RexLiteral) literal;
       final RelDataType type = inputRef.getType();
 
       if (type.getSqlTypeName() == null) {
@@ -127,79 +123,44 @@ public class VisitorDataContext implements DataContext {
 
       switch (type.getSqlTypeName()) {
       case INTEGER:
-        if (value instanceof BigDecimal) {
-          return Pair.of(index, ((BigDecimal) value).intValue());
-        }
+        return Pair.of(index, rexLiteral.getValueAs(Integer.class));
       case DOUBLE:
-        if (value instanceof BigDecimal) {
-          return Pair.of(index, ((BigDecimal) value).doubleValue());
-        }
+        return Pair.of(index, rexLiteral.getValueAs(Double.class));
       case REAL:
-        if (value instanceof BigDecimal) {
-          return Pair.of(index, ((BigDecimal) value).floatValue());
-        }
+        return Pair.of(index, rexLiteral.getValueAs(Float.class));
       case BIGINT:
-        if (value instanceof BigDecimal) {
-          return Pair.of(index, ((BigDecimal) value).longValue());
-        }
+        return Pair.of(index, rexLiteral.getValueAs(Long.class));
       case SMALLINT:
-        if (value instanceof BigDecimal) {
-          return Pair.of(index, ((BigDecimal) value).shortValue());
-        }
+        return Pair.of(index, rexLiteral.getValueAs(Short.class));
       case TINYINT:
-        if (value instanceof BigDecimal) {
-          return Pair.of(index, (short) ((BigDecimal) value).byteValue());
-        }
+        return Pair.of(index, rexLiteral.getValueAs(Byte.class));
       case DECIMAL:
-        if (value instanceof BigDecimal) {
-          return Pair.of(index, value);
-        }
+        return Pair.of(index, rexLiteral.getValueAs(BigDecimal.class));
       case DATE:
-        if (value instanceof NlsString) {
-          value = ((RexLiteral) literal).getValue2();
-          final Date dateValue = Date.valueOf((String) value);
-          return Pair.of(index, dateValue);
-        } else if (value instanceof Calendar) {
-          final long timeInMillis = ((Calendar) value).getTimeInMillis();
-          return Pair.of(index, new Date(timeInMillis));
-        }
+      case TIME:
+        return Pair.of(index, rexLiteral.getValueAs(Integer.class));
+      case TIMESTAMP:
+        return Pair.of(index, rexLiteral.getValueAs(Long.class));
       case CHAR:
-        if (value instanceof NlsString) {
-          // TODO: Support collation. Not supported in NlsString compare too.
-          final NlsString nl = (NlsString) value;
-          return Pair.of(index, nl.getValue().charAt(0));
-        }
+        return Pair.of(index, rexLiteral.getValueAs(Character.class));
       case VARCHAR:
-        if (value instanceof NlsString) {
-          // TODO: Support coallation. Not supported in {@link #NlsString} compare too.
-          return Pair.of(index, ((NlsString) value).getValue());
-        }
+        return Pair.of(index, rexLiteral.getValueAs(String.class));
       default:
-        //TODO: Support few more supported cases
+        // TODO: Support few more supported cases
         LOGGER.warn("{} for value of class {} is being handled in default way",
-            type.getSqlTypeName(), value.getClass());
-        if (value instanceof NlsString) {
-          return Pair.of(index, ((NlsString) value).getValue());
+            type.getSqlTypeName(), rexLiteral.getValue().getClass());
+        if (rexLiteral.getValue() instanceof NlsString) {
+          return Pair.of(index, ((NlsString) rexLiteral.getValue()).getValue());
         } else {
-          return Pair.of(index, value);
+          return Pair.of(index, rexLiteral.getValue());
         }
       }
     }
 
-    //Unsupported Arguments
+    // Unsupported Arguments
     return null;
   }
 
-  private static RexNode removeCast(RexNode inputRef) {
-    if (inputRef instanceof RexCall) {
-      final RexCall castedRef = (RexCall) inputRef;
-      final SqlOperator operator = castedRef.getOperator();
-      if (operator instanceof SqlCastFunction) {
-        inputRef = castedRef.getOperands().get(0);
-      }
-    }
-    return inputRef;
-  }
 }
 
 // End VisitorDataContext.java

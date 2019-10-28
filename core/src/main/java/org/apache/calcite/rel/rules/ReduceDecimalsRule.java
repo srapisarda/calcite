@@ -20,6 +20,7 @@ import org.apache.calcite.linq4j.Ord;
 import org.apache.calcite.plan.Convention;
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
+import org.apache.calcite.rel.core.RelFactories;
 import org.apache.calcite.rel.logical.LogicalCalc;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeSystem;
@@ -36,6 +37,7 @@ import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql.type.SqlTypeUtil;
+import org.apache.calcite.tools.RelBuilderFactory;
 import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.Util;
 
@@ -65,15 +67,16 @@ import static org.apache.calcite.util.Static.RESOURCE;
  * would like to push down decimal operations to an external database.
  */
 public class ReduceDecimalsRule extends RelOptRule {
-  public static final ReduceDecimalsRule INSTANCE = new ReduceDecimalsRule();
+  public static final ReduceDecimalsRule INSTANCE =
+      new ReduceDecimalsRule(RelFactories.LOGICAL_BUILDER);
 
   //~ Constructors -----------------------------------------------------------
 
   /**
    * Creates a ReduceDecimalsRule.
    */
-  private ReduceDecimalsRule() {
-    super(operand(LogicalCalc.class, any()));
+  public ReduceDecimalsRule(RelBuilderFactory relBuilderFactory) {
+    super(operand(LogicalCalc.class, any()), relBuilderFactory, null);
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -119,13 +122,13 @@ public class ReduceDecimalsRule extends RelOptRule {
    * longs.
    */
   public class DecimalShuttle extends RexShuttle {
-    private final Map<Pair<String, String>, RexNode> irreducible;
-    private final Map<Pair<String, String>, RexNode> results;
+    private final Map<Pair<RexNode, String>, RexNode> irreducible;
+    private final Map<Pair<RexNode, String>, RexNode> results;
     private final ExpanderMap expanderMap;
 
     public DecimalShuttle(RexBuilder rexBuilder) {
-      irreducible = new HashMap<Pair<String, String>, RexNode>();
-      results = new HashMap<Pair<String, String>, RexNode>();
+      irreducible = new HashMap<>();
+      results = new HashMap<>();
       expanderMap = new ExpanderMap(rexBuilder);
     }
 
@@ -148,14 +151,6 @@ public class ReduceDecimalsRule extends RelOptRule {
         return savedResult;
       }
 
-      // permanently updates a call in place
-      List<RexNode> newOperands = apply(call.getOperands());
-      if (true) {
-        // FIXME: Operands are now immutable. Create a new call with
-        //   new operands?
-        throw new AssertionError();
-      }
-
       RexNode newCall = call;
       RexNode rewrite = rewriteCall(call);
       if (rewrite != call) {
@@ -170,7 +165,7 @@ public class ReduceDecimalsRule extends RelOptRule {
      * Registers node so it will not be computed again
      */
     private void register(RexNode node, RexNode reducedNode) {
-      Pair<String, String> key = RexUtil.makeKey(node);
+      Pair<RexNode, String> key = RexUtil.makeKey(node);
       if (node == reducedNode) {
         irreducible.put(key, reducedNode);
       } else {
@@ -182,7 +177,7 @@ public class ReduceDecimalsRule extends RelOptRule {
      * Lookup registered node
      */
     private RexNode lookup(RexNode node) {
-      Pair<String, String> key = RexUtil.makeKey(node);
+      Pair<RexNode, String> key = RexUtil.makeKey(node);
       if (irreducible.get(key) != null) {
         return node;
       }
@@ -221,7 +216,7 @@ public class ReduceDecimalsRule extends RelOptRule {
     private RexExpander defaultExpander;
 
     private ExpanderMap(RexBuilder rexBuilder) {
-      map = new HashMap<SqlOperator, RexExpander>();
+      map = new HashMap<>();
       registerExpanders(rexBuilder);
     }
 
@@ -798,8 +793,7 @@ public class ReduceDecimalsRule extends RelOptRule {
         if (fromScale <= toScale) {
           scaled = ensureScale(value, fromScale, toScale);
         } else {
-          if ((toDigits == fromDigits)
-              && (toScale < fromScale)) {
+          if (toDigits == fromDigits) {
             // rounding away from zero may cause an overflow
             // for example: cast(9.99 as decimal(2,1))
             checkOverflow = true;
@@ -868,8 +862,7 @@ public class ReduceDecimalsRule extends RelOptRule {
       } else if (call.getOperator() == SqlStdOperatorTable.MOD) {
         return expandMod(call, operands);
       } else {
-        throw Util.newInternal(
-            "ReduceDecimalsRule could not expand "
+        throw new AssertionError("ReduceDecimalsRule could not expand "
             + call.getOperator());
       }
     }
@@ -938,7 +931,8 @@ public class ReduceDecimalsRule extends RelOptRule {
       // a lower scale, then the number should be scaled down.
       int divisor = scaleA + scaleB - call.getType().getScale();
 
-      if (builder.getTypeFactory().useDoubleMultiplication(
+      if (builder.getTypeFactory().getTypeSystem().shouldUseDoubleMultiplication(
+          builder.getTypeFactory(),
           typeA,
           typeB)) {
         // Approximate implementation:
@@ -1003,12 +997,12 @@ public class ReduceDecimalsRule extends RelOptRule {
   /**
    * Expander that rewrites floor(decimal) expressions:
    *
-   * <pre>
+   * <blockquote><pre>
    * if (value &lt; 0)
    *     (value - 0.99...) / (10^scale)
    * else
    *     value / (10 ^ scale)
-   * </pre>
+   * </pre></blockquote>
    */
   private class FloorExpander extends RexExpander {
     private FloorExpander(RexBuilder rexBuilder) {
@@ -1052,12 +1046,12 @@ public class ReduceDecimalsRule extends RelOptRule {
   /**
    * Expander that rewrites ceiling(decimal) expressions:
    *
-   * <pre>
+   * <blockquote><pre>
    * if (value &gt; 0)
    *     (value + 0.99...) / (10 ^ scale)
    * else
    *     value / (10 ^ scale)
-   * </pre>
+   * </pre></blockquote>
    */
   private class CeilExpander extends RexExpander {
     private CeilExpander(RexBuilder rexBuilder) {
@@ -1101,14 +1095,14 @@ public class ReduceDecimalsRule extends RelOptRule {
   /**
    * Expander that rewrites case expressions, in place. Starting from:
    *
-   * <pre>(when $cond then $val)+ else $default</pre>
+   * <blockquote><pre>(when $cond then $val)+ else $default</pre></blockquote>
    *
-   * this expander casts all values to the return type. If the target type is
+   * <p>this expander casts all values to the return type. If the target type is
    * a decimal, then the values are then decoded. The result of expansion is
    * that the case operator no longer deals with decimals args. (The return
    * value is encoded if necessary.)
    *
-   * <p>Note: a decimal type is returned iff arguments have decimals
+   * <p>Note: a decimal type is returned iff arguments have decimals.
    */
   private class CaseExpander extends RexExpander {
     private CaseExpander(RexBuilder rexBuilder) {

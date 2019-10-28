@@ -25,16 +25,17 @@ import org.apache.calcite.rel.BiRel;
 import org.apache.calcite.rel.RelInput;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
-import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
-import org.apache.calcite.sql.SemiJoinType;
+import org.apache.calcite.sql.validate.SqlValidatorUtil;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.apache.calcite.util.Litmus;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -69,12 +70,13 @@ public abstract class Correlate extends BiRel {
 
   protected final CorrelationId correlationId;
   protected final ImmutableBitSet requiredColumns;
-  protected final SemiJoinType joinType;
+  protected final JoinRelType joinType;
 
   //~ Constructors -----------------------------------------------------------
 
   /**
    * Creates a Correlate.
+   *
    * @param cluster      Cluster this relational expression belongs to
    * @param left         Left input relational expression
    * @param right        Right input relational expression
@@ -84,15 +86,17 @@ public abstract class Correlate extends BiRel {
    */
   protected Correlate(
       RelOptCluster cluster,
-      RelTraitSet traits,
+      RelTraitSet traitSet,
       RelNode left,
       RelNode right,
       CorrelationId correlationId,
-      ImmutableBitSet requiredColumns, SemiJoinType joinType) {
-    super(cluster, traits, left, right);
-    this.joinType = joinType;
-    this.correlationId = correlationId;
-    this.requiredColumns = requiredColumns;
+      ImmutableBitSet requiredColumns,
+      JoinRelType joinType) {
+    super(cluster, traitSet, left, right);
+    assert !joinType.generatesNullsOnLeft() : "Correlate has invalid join type " + joinType;
+    this.joinType = Objects.requireNonNull(joinType);
+    this.correlationId = Objects.requireNonNull(correlationId);
+    this.requiredColumns = Objects.requireNonNull(requiredColumns);
   }
 
   /**
@@ -104,15 +108,15 @@ public abstract class Correlate extends BiRel {
     this(
         input.getCluster(), input.getTraitSet(), input.getInputs().get(0),
         input.getInputs().get(1),
-        new CorrelationId((Integer) input.get("correlationId")),
+        new CorrelationId((Integer) input.get("correlation")),
         input.getBitSet("requiredColumns"),
-        input.getEnum("joinType", SemiJoinType.class));
+        input.getEnum("joinType", JoinRelType.class));
   }
 
   //~ Methods ----------------------------------------------------------------
 
-  @Override public boolean isValid(Litmus litmus) {
-    return super.isValid(litmus)
+  @Override public boolean isValid(Litmus litmus, Context context) {
+    return super.isValid(litmus, context)
         && RelOptUtil.notContainsCorrelation(left, correlationId, litmus);
   }
 
@@ -128,9 +132,9 @@ public abstract class Correlate extends BiRel {
 
   public abstract Correlate copy(RelTraitSet traitSet,
       RelNode left, RelNode right, CorrelationId correlationId,
-      ImmutableBitSet requiredColumns, SemiJoinType joinType);
+      ImmutableBitSet requiredColumns, JoinRelType joinType);
 
-  public SemiJoinType getJoinType() {
+  public JoinRelType getJoinType() {
     return joinType;
   }
 
@@ -138,11 +142,10 @@ public abstract class Correlate extends BiRel {
     switch (joinType) {
     case LEFT:
     case INNER:
-      // LogicalJoin is used to share the code of column names deduplication
-      final LogicalJoin join = LogicalJoin.create(left, right,
-          getCluster().getRexBuilder().makeLiteral(true),
-          ImmutableSet.<CorrelationId>of(), joinType.toJoinType());
-      return join.deriveRowType();
+      return SqlValidatorUtil.deriveJoinRowType(left.getRowType(),
+          right.getRowType(), joinType,
+          getCluster().getTypeFactory(), null,
+          ImmutableList.of());
     case ANTI:
     case SEMI:
       return left.getRowType();
@@ -154,8 +157,8 @@ public abstract class Correlate extends BiRel {
   @Override public RelWriter explainTerms(RelWriter pw) {
     return super.explainTerms(pw)
         .item("correlation", correlationId)
-        .item("joinType", joinType)
-        .item("requiredColumns", requiredColumns.toString());
+        .item("joinType", joinType.lowerName)
+        .item("requiredColumns", requiredColumns);
   }
 
   /**

@@ -46,17 +46,18 @@ import java.util.List;
  * advantage of applying this rule is that it may be possible to apply
  * conditions earlier. For instance,</p>
  *
- * <pre>{@code
- * (sales as s join product_class as pc on true)
+ * <blockquote>
+ * <pre>(sales as s join product_class as pc on true)
  * join product as p
  * on s.product_id = p.product_id
- * and p.product_class_id = pc.product_class_id}</pre>
+ * and p.product_class_id = pc.product_class_id</pre></blockquote>
  *
- * becomes
+ * <p>becomes
  *
- * <pre>{@code (sales as s join product as p on s.product_id = p.product_id)
+ * <blockquote>
+ * <pre>(sales as s join product as p on s.product_id = p.product_id)
  * join product_class as pc
- * on p.product_class_id = pc.product_class_id}</pre>
+ * on p.product_class_id = pc.product_class_id</pre></blockquote>
  *
  * <p>Before the rule, one join has two conditions and the other has none
  * ({@code ON TRUE}). After the rule, each join has one condition.</p>
@@ -173,7 +174,7 @@ public class JoinPushThroughJoinRule extends RelOptRule {
         .visitList(bottomNonIntersecting, newBottomList);
     final RexBuilder rexBuilder = cluster.getRexBuilder();
     RexNode newBottomCondition =
-        RexUtil.composeConjunction(rexBuilder, newBottomList, false);
+        RexUtil.composeConjunction(rexBuilder, newBottomList);
     final Join newBottomJoin =
         bottomJoin.copy(bottomJoin.getTraitSet(), newBottomCondition, relA,
             relC, bottomJoin.getJoinType(), bottomJoin.isSemiJoinDone());
@@ -192,7 +193,7 @@ public class JoinPushThroughJoinRule extends RelOptRule {
     new RexPermuteInputsShuttle(topMapping, newBottomJoin, relB)
         .visitList(bottomIntersecting, newTopList);
     RexNode newTopCondition =
-        RexUtil.composeConjunction(rexBuilder, newTopList, false);
+        RexUtil.composeConjunction(rexBuilder, newTopList);
     @SuppressWarnings("SuspiciousNameCombination")
     final Join newTopJoin =
         topJoin.copy(topJoin.getTraitSet(), newTopCondition, newBottomJoin,
@@ -276,7 +277,7 @@ public class JoinPushThroughJoinRule extends RelOptRule {
         .visitList(bottomNonIntersecting, newBottomList);
     final RexBuilder rexBuilder = cluster.getRexBuilder();
     RexNode newBottomCondition =
-        RexUtil.composeConjunction(rexBuilder, newBottomList, false);
+        RexUtil.composeConjunction(rexBuilder, newBottomList);
     final Join newBottomJoin =
         bottomJoin.copy(bottomJoin.getTraitSet(), newBottomCondition, relC,
             relB, bottomJoin.getJoinType(), bottomJoin.isSemiJoinDone());
@@ -295,7 +296,7 @@ public class JoinPushThroughJoinRule extends RelOptRule {
     new RexPermuteInputsShuttle(topMapping, newBottomJoin, relA)
         .visitList(bottomIntersecting, newTopList);
     RexNode newTopCondition =
-        RexUtil.composeConjunction(rexBuilder, newTopList, false);
+        RexUtil.composeConjunction(rexBuilder, newTopList);
     @SuppressWarnings("SuspiciousNameCombination")
     final Join newTopJoin =
         topJoin.copy(topJoin.getTraitSet(), newTopCondition, newBottomJoin,

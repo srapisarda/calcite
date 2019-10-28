@@ -22,6 +22,8 @@ import org.apache.calcite.sql.validate.SqlValidatorScope;
 import org.apache.calcite.util.ImmutableNullableList;
 
 import java.util.List;
+import java.util.Objects;
+import javax.annotation.Nonnull;
 
 /**
  * A <code>SqlSelect</code> is a node of a parse tree which represents a select
@@ -61,13 +63,15 @@ public class SqlSelect extends SqlCall {
       SqlNode offset,
       SqlNode fetch) {
     super(pos);
-    this.keywordList = keywordList != null ? keywordList : new SqlNodeList(pos);
+    this.keywordList = Objects.requireNonNull(keywordList != null
+        ? keywordList : new SqlNodeList(pos));
     this.selectList = selectList;
     this.from = from;
     this.where = where;
     this.groupBy = groupBy;
     this.having = having;
-    this.windowDecls = windowDecls != null ? windowDecls : new SqlNodeList(pos);
+    this.windowDecls = Objects.requireNonNull(windowDecls != null
+        ? windowDecls : new SqlNodeList(pos));
     this.orderBy = orderBy;
     this.offset = offset;
     this.fetch = fetch;
@@ -91,7 +95,7 @@ public class SqlSelect extends SqlCall {
   @Override public void setOperand(int i, SqlNode operand) {
     switch (i) {
     case 0:
-      keywordList = (SqlNodeList) operand;
+      keywordList = Objects.requireNonNull((SqlNodeList) operand);
       break;
     case 1:
       selectList = (SqlNodeList) operand;
@@ -109,7 +113,7 @@ public class SqlSelect extends SqlCall {
       having = operand;
       break;
     case 6:
-      windowDecls = (SqlNodeList) operand;
+      windowDecls = Objects.requireNonNull((SqlNodeList) operand);
       break;
     case 7:
       orderBy = (SqlNodeList) operand;
@@ -160,6 +164,10 @@ public class SqlSelect extends SqlCall {
     return having;
   }
 
+  public void setHaving(SqlNode having) {
+    this.having = having;
+  }
+
   public final SqlNodeList getSelectList() {
     return selectList;
   }
@@ -176,7 +184,7 @@ public class SqlSelect extends SqlCall {
     this.where = whereClause;
   }
 
-  public final SqlNodeList getWindowList() {
+  @Nonnull public final SqlNodeList getWindowList() {
     return windowDecls;
   }
 
@@ -208,18 +216,18 @@ public class SqlSelect extends SqlCall {
     validator.validateQuery(this, scope, validator.getUnknownType());
   }
 
-  // Override SqlCall, to introduce a subquery frame.
+  // Override SqlCall, to introduce a sub-query frame.
   @Override public void unparse(SqlWriter writer, int leftPrec, int rightPrec) {
     if (!writer.inQuery()) {
-      // If this SELECT is the topmost item in a subquery, introduce a new
-      // frame. (The topmost item in the subquery might be a UNION or
+      // If this SELECT is the topmost item in a sub-query, introduce a new
+      // frame. (The topmost item in the sub-query might be a UNION or
       // ORDER. In this case, we don't need a wrapper frame.)
       final SqlWriter.Frame frame =
           writer.startList(SqlWriter.FrameTypeEnum.SUB_QUERY, "(", ")");
-      getOperator().unparse(writer, this, 0, 0);
+      writer.getDialect().unparseCall(writer, this, 0, 0);
       writer.endList(frame);
     } else {
-      getOperator().unparse(writer, this, leftPrec, rightPrec);
+      writer.getDialect().unparseCall(writer, this, leftPrec, rightPrec);
     }
   }
 

@@ -18,6 +18,7 @@ package org.apache.calcite.plan.volcano;
 
 import org.apache.calcite.adapter.enumerable.EnumerableTableScan;
 import org.apache.calcite.adapter.java.JavaTypeFactory;
+import org.apache.calcite.config.CalciteSystemProperty;
 import org.apache.calcite.jdbc.CalcitePrepare;
 import org.apache.calcite.plan.Convention;
 import org.apache.calcite.plan.ConventionTraitDef;
@@ -34,7 +35,6 @@ import org.apache.calcite.plan.RelTrait;
 import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.plan.volcano.AbstractConverter.ExpandConversionRule;
 import org.apache.calcite.prepare.CalciteCatalogReader;
-import org.apache.calcite.prepare.CalcitePrepareImpl;
 import org.apache.calcite.rel.AbstractRelNode;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollationTraitDef;
@@ -61,6 +61,7 @@ import org.apache.calcite.schema.Statistics;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.server.CalciteServerStatement;
+import org.apache.calcite.sql.SqlExplainFormat;
 import org.apache.calcite.sql.SqlExplainLevel;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.type.SqlTypeName;
@@ -70,7 +71,6 @@ import org.apache.calcite.tools.RuleSet;
 import org.apache.calcite.tools.RuleSets;
 import org.apache.calcite.util.ImmutableBitSet;
 
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 
 import org.junit.Test;
@@ -105,12 +105,12 @@ public class TraitPropagationTest {
 
   @Test public void testOne() throws Exception {
     RelNode planned = run(new PropAction(), RULES);
-    if (CalcitePrepareImpl.DEBUG) {
+    if (CalciteSystemProperty.DEBUG.value()) {
       System.out.println(
-          RelOptUtil.dumpPlan("LOGICAL PLAN", planned, false,
+          RelOptUtil.dumpPlan("LOGICAL PLAN", planned, SqlExplainFormat.TEXT,
               SqlExplainLevel.ALL_ATTRIBUTES));
     }
-    final RelMetadataQuery mq = RelMetadataQuery.instance();
+    final RelMetadataQuery mq = planned.getCluster().getMetadataQuery();
     assertEquals("Sortedness was not propagated", 3,
         mq.getCumulativeCost(planned).getRows(), 0);
   }
@@ -139,7 +139,7 @@ public class TraitPropagationTest {
         }
 
         @Override public Statistic getStatistic() {
-          return Statistics.of(100d, ImmutableList.<ImmutableBitSet>of(),
+          return Statistics.of(100d, ImmutableList.of(),
               ImmutableList.of(COLLATION));
         }
       };
@@ -165,14 +165,15 @@ public class TraitPropagationTest {
 
       // aggregate on s, count
       AggregateCall aggCall = AggregateCall.create(SqlStdOperatorTable.COUNT,
-          false, Collections.singletonList(1), -1, sqlBigInt, "cnt");
+          false, false, false, Collections.singletonList(1), -1, RelCollations.EMPTY,
+          sqlBigInt, "cnt");
       RelNode agg = new LogicalAggregate(cluster,
-          cluster.traitSetOf(Convention.NONE), project, false,
+          cluster.traitSetOf(Convention.NONE), project,
           ImmutableBitSet.of(0), null, Collections.singletonList(aggCall));
 
       final RelNode rootRel = agg;
 
-      RelOptUtil.dumpPlan("LOGICAL PLAN", rootRel, false,
+      RelOptUtil.dumpPlan("LOGICAL PLAN", rootRel, SqlExplainFormat.TEXT,
           SqlExplainLevel.DIGEST_ATTRIBUTES);
 
       RelTraitSet desiredTraits = rootRel.getTraitSet().replace(PHYSICAL);
@@ -205,7 +206,7 @@ public class TraitPropagationTest {
       RelNode convertedInput = convert(rel.getInput(), desiredTraits);
       call.transformTo(
           new PhysAgg(rel.getCluster(), empty.replace(PHYSICAL),
-              convertedInput, rel.indicator, rel.getGroupSet(),
+              convertedInput, rel.getGroupSet(),
               rel.getGroupSets(), rel.getAggCallList()));
     }
   }
@@ -293,17 +294,16 @@ public class TraitPropagationTest {
 
   /** Physical Aggregate RelNode */
   private static class PhysAgg extends Aggregate implements Phys {
-    public PhysAgg(RelOptCluster cluster, RelTraitSet traits, RelNode child,
-        boolean indicator, ImmutableBitSet groupSet,
+    PhysAgg(RelOptCluster cluster, RelTraitSet traitSet, RelNode input,
+        ImmutableBitSet groupSet,
         List<ImmutableBitSet> groupSets, List<AggregateCall> aggCalls) {
-      super(cluster, traits, child, indicator, groupSet, groupSets, aggCalls);
-
+      super(cluster, traitSet, input, groupSet, groupSets, aggCalls);
     }
 
     public Aggregate copy(RelTraitSet traitSet, RelNode input,
-        boolean indicator, ImmutableBitSet groupSet,
+        ImmutableBitSet groupSet,
         List<ImmutableBitSet> groupSets, List<AggregateCall> aggCalls) {
-      return new PhysAgg(getCluster(), traitSet, input, indicator, groupSet,
+      return new PhysAgg(getCluster(), traitSet, input, groupSet,
           groupSets, aggCalls);
     }
 
@@ -315,7 +315,7 @@ public class TraitPropagationTest {
 
   /** Physical Project RelNode */
   private static class PhysProj extends Project implements Phys {
-    public PhysProj(RelOptCluster cluster, RelTraitSet traits, RelNode child,
+    PhysProj(RelOptCluster cluster, RelTraitSet traits, RelNode child,
         List<RexNode> exps, RelDataType rowType) {
       super(cluster, traits, child, exps, rowType);
     }
@@ -323,16 +323,12 @@ public class TraitPropagationTest {
     public static PhysProj create(final RelNode input,
         final List<RexNode> projects, RelDataType rowType) {
       final RelOptCluster cluster = input.getCluster();
-      final RelMetadataQuery mq = RelMetadataQuery.instance();
+      final RelMetadataQuery mq = cluster.getMetadataQuery();
       final RelTraitSet traitSet =
           cluster.traitSet().replace(PHYSICAL)
               .replaceIfs(
                   RelCollationTraitDef.INSTANCE,
-                  new Supplier<List<RelCollation>>() {
-                    public List<RelCollation> get() {
-                      return RelMdCollation.project(mq, input, projects);
-                    }
-                  });
+                  () -> RelMdCollation.project(mq, input, projects));
       return new PhysProj(cluster, traitSet, input, projects, rowType);
     }
 
@@ -349,7 +345,7 @@ public class TraitPropagationTest {
 
   /** Physical Sort RelNode */
   private static class PhysSort extends Sort implements Phys {
-    public PhysSort(RelOptCluster cluster, RelTraitSet traits, RelNode child,
+    PhysSort(RelOptCluster cluster, RelTraitSet traits, RelNode child,
         RelCollation collation, RexNode offset,
         RexNode fetch) {
       super(cluster, traits, child, collation, offset, fetch);
@@ -371,7 +367,7 @@ public class TraitPropagationTest {
 
   /** Physical Table RelNode */
   private static class PhysTable extends AbstractRelNode implements Phys {
-    public PhysTable(RelOptCluster cluster) {
+    PhysTable(RelOptCluster cluster) {
       super(cluster, cluster.traitSet().replace(PHYSICAL).replace(COLLATION));
       RelDataTypeFactory typeFactory = cluster.getTypeFactory();
       final RelDataType stringType = typeFactory.createJavaType(String.class);
@@ -409,9 +405,9 @@ public class TraitPropagationTest {
     final JavaTypeFactory typeFactory = prepareContext.getTypeFactory();
     CalciteCatalogReader catalogReader =
           new CalciteCatalogReader(prepareContext.getRootSchema(),
-              prepareContext.config().caseSensitive(),
               prepareContext.getDefaultSchemaPath(),
-              typeFactory);
+              typeFactory,
+              prepareContext.config());
     final RexBuilder rexBuilder = new RexBuilder(typeFactory);
     final RelOptPlanner planner = new VolcanoPlanner(config.getCostFactory(),
         config.getContext());

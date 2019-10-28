@@ -42,8 +42,8 @@ import org.apache.calcite.util.Util;
 
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Session;
+import com.google.common.collect.ImmutableList;
 
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -97,9 +97,8 @@ public class CassandraTable extends AbstractQueryableTable
   }
 
   public Enumerable<Object> query(final Session session) {
-    return query(session, Collections.<Map.Entry<String, Class>>emptyList(),
-        Collections.<Map.Entry<String, String>>emptyList(),
-        Collections.<String>emptyList(), Collections.<String>emptyList(), 0, -1);
+    return query(session, ImmutableList.of(), ImmutableList.of(),
+        ImmutableList.of(), ImmutableList.of(), 0, -1);
   }
 
   /** Executes a CQL query on the underlying table.
@@ -115,15 +114,15 @@ public class CassandraTable extends AbstractQueryableTable
     // Build the type of the resulting row based on the provided fields
     final RelDataTypeFactory typeFactory =
         new SqlTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
-    final RelDataTypeFactory.FieldInfoBuilder fieldInfo = typeFactory.builder();
-    final RelDataType rowType = protoRowType.apply(typeFactory);
+    final RelDataTypeFactory.Builder fieldInfo = typeFactory.builder();
+    final RelDataType rowType = getRowType(typeFactory);
 
-    Function1<String, Void> addField = new Function1<String, Void>() {
-      public Void apply(String fieldName) {
-        SqlTypeName typeName = rowType.getField(fieldName, true, false).getType().getSqlTypeName();
-        fieldInfo.add(fieldName, typeFactory.createSqlType(typeName)).nullable(true);
-        return null;
-      }
+    Function1<String, Void> addField = fieldName -> {
+      SqlTypeName typeName =
+          rowType.getField(fieldName, true, false).getType().getSqlTypeName();
+      fieldInfo.add(fieldName, typeFactory.createSqlType(typeName))
+          .nullable(true);
+      return null;
     };
 
     if (selectFields.isEmpty()) {
@@ -143,26 +142,24 @@ public class CassandraTable extends AbstractQueryableTable
     if (selectFields.isEmpty()) {
       selectString = "*";
     } else {
-      selectString = Util.toString(new Iterable<String>() {
-        public Iterator<String> iterator() {
-          final Iterator<Map.Entry<String, String>> selectIterator =
-              selectFields.iterator();
+      selectString = Util.toString(() -> {
+        final Iterator<Map.Entry<String, String>> selectIterator =
+            selectFields.iterator();
 
-          return new Iterator<String>() {
-            @Override public boolean hasNext() {
-              return selectIterator.hasNext();
-            }
+        return new Iterator<String>() {
+          @Override public boolean hasNext() {
+            return selectIterator.hasNext();
+          }
 
-            @Override public String next() {
-              Map.Entry<String, String> entry = selectIterator.next();
-              return entry.getKey() + " AS " + entry.getValue();
-            }
+          @Override public String next() {
+            Map.Entry<String, String> entry = selectIterator.next();
+            return entry.getKey() + " AS " + entry.getValue();
+          }
 
-            @Override public void remove() {
-              throw new UnsupportedOperationException();
-            }
-          };
-        }
+          @Override public void remove() {
+            throw new UnsupportedOperationException();
+          }
+        };
       }, "", ", ", "");
     }
 
@@ -183,7 +180,9 @@ public class CassandraTable extends AbstractQueryableTable
     }
 
     int limit = offset;
-    if (fetch >= 0) { limit += fetch; }
+    if (fetch >= 0) {
+      limit += fetch;
+    }
     if (limit > 0) {
       queryBuilder.append(" LIMIT " + limit);
     }
@@ -196,8 +195,9 @@ public class CassandraTable extends AbstractQueryableTable
         // Skip results until we get to the right offset
         int skip = 0;
         Enumerator<Object> enumerator = new CassandraEnumerator(results, resultRowType);
-        while (skip < offset && enumerator.moveNext()) { skip++; }
-
+        while (skip < offset && enumerator.moveNext()) {
+          skip++;
+        }
         return enumerator;
       }
     };
@@ -217,7 +217,9 @@ public class CassandraTable extends AbstractQueryableTable
   }
 
   /** Implementation of {@link org.apache.calcite.linq4j.Queryable} based on
-   * a {@link org.apache.calcite.adapter.cassandra.CassandraTable}. */
+   * a {@link org.apache.calcite.adapter.cassandra.CassandraTable}.
+   *
+   * @param <T> element type */
   public static class CassandraQueryable<T> extends AbstractTableQueryable<T> {
     public CassandraQueryable(QueryProvider queryProvider, SchemaPlus schema,
         CassandraTable table, String tableName) {

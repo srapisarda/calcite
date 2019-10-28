@@ -19,13 +19,14 @@ package org.apache.calcite.linq4j.tree;
 import org.apache.calcite.linq4j.function.Function;
 import org.apache.calcite.linq4j.function.Functions;
 
-import java.lang.reflect.InvocationHandler;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -59,8 +60,7 @@ public final class FunctionExpression<F extends Function<?>>
   }
 
   public FunctionExpression(F function) {
-    this((Class) function.getClass(), function, null,
-        Collections.<ParameterExpression>emptyList());
+    this((Class) function.getClass(), function, null, ImmutableList.of());
   }
 
   public FunctionExpression(Class<F> type, BlockStatement body,
@@ -68,21 +68,23 @@ public final class FunctionExpression<F extends Function<?>>
     this(type, null, body, parameters);
   }
 
-  @Override public Expression accept(Visitor visitor) {
-    visitor = visitor.preVisit(this);
-    BlockStatement body = this.body.accept(visitor);
-    return visitor.visit(this, body);
+  @Override public Expression accept(Shuttle shuttle) {
+    shuttle = shuttle.preVisit(this);
+    BlockStatement body = this.body.accept(shuttle);
+    return shuttle.visit(this, body);
+  }
+
+  public <R> R accept(Visitor<R> visitor) {
+    return visitor.visit(this);
   }
 
   public Invokable compile() {
-    return new Invokable() {
-      public Object dynamicInvoke(Object... args) {
-        final Evaluator evaluator = new Evaluator();
-        for (int i = 0; i < args.length; i++) {
-          evaluator.push(parameterList.get(i), args[i]);
-        }
-        return evaluator.evaluate(body);
+    return args -> {
+      final Evaluator evaluator = new Evaluator();
+      for (int i = 0; i < args.length; i++) {
+        evaluator.push(parameterList.get(i), args[i]);
       }
+      return evaluator.evaluate(body);
     };
   }
 
@@ -95,13 +97,7 @@ public final class FunctionExpression<F extends Function<?>>
 
       //noinspection unchecked
       dynamicFunction = (F) Proxy.newProxyInstance(getClass().getClassLoader(),
-          new Class[]{Types.toClass(type)},
-          new InvocationHandler() {
-            public Object invoke(Object proxy, Method method, Object[] args)
-                throws Throwable {
-              return x.dynamicInvoke(args);
-            }
-          });
+          new Class[]{Types.toClass(type)}, (proxy, method, args) -> x.dynamicInvoke(args));
     }
     return dynamicFunction;
   }
@@ -131,11 +127,11 @@ public final class FunctionExpression<F extends Function<?>>
     //    public Object apply(Object p1, Object p2) {
     //      return apply((Double) p1, (Integer) p2);
     //    }
-    List<String> params = new ArrayList<String>();
-    List<String> bridgeParams = new ArrayList<String>();
-    List<String> bridgeArgs = new ArrayList<String>();
-    List<String> boxBridgeParams = new ArrayList<String>();
-    List<String> boxBridgeArgs = new ArrayList<String>();
+    List<String> params = new ArrayList<>();
+    List<String> bridgeParams = new ArrayList<>();
+    List<String> bridgeArgs = new ArrayList<>();
+    List<String> boxBridgeParams = new ArrayList<>();
+    List<String> boxBridgeArgs = new ArrayList<>();
     for (ParameterExpression parameterExpression : parameterList) {
       final Type parameterType = parameterExpression.getType();
       final Type parameterBoxType = Types.box(parameterType);
@@ -168,7 +164,8 @@ public final class FunctionExpression<F extends Function<?>>
         .begin(" {\n")
         .append("public ")
         .append(Types.className(resultType2))
-        .list(" " + methodName + "(", ", ", ") ", params)
+        .list(" " + methodName + "(",
+                ", ", ") ", params)
         .append(Blocks.toFunctionBlock(body));
 
     // Generate an intermediate bridge method if at least one parameter is
@@ -176,7 +173,7 @@ public final class FunctionExpression<F extends Function<?>>
     final String bridgeResultTypeName =
         isAbstractMethodPrimitive()
             ? Types.className(bridgeResultType)
-            : Types.boxClassName(bridgeResultType);
+            : Types.className(Types.box(bridgeResultType));
     if (!boxBridgeParams.equals(params)) {
       writer
           .append("public ")
@@ -207,7 +204,8 @@ public final class FunctionExpression<F extends Function<?>>
 
   private boolean isAbstractMethodPrimitive() {
     Method method = getAbstractMethod();
-    return method != null && Primitive.is(method.getReturnType());
+    assert method != null;
+    return Primitive.is(method.getReturnType());
   }
 
   private String getAbstractMethodName() {
@@ -218,9 +216,13 @@ public final class FunctionExpression<F extends Function<?>>
 
   private Method getAbstractMethod() {
     if (type instanceof Class
-      && ((Class) type).isInterface()
-      && ((Class) type).getDeclaredMethods().length == 1) {
-      return ((Class) type).getDeclaredMethods()[0];
+        && ((Class) type).isInterface()) {
+      final List<Method> declaredMethods =
+          Lists.newArrayList(((Class) type).getDeclaredMethods());
+      declaredMethods.removeIf(m -> (m.getModifiers() & 0x00001000) != 0);
+      if (declaredMethods.size() == 1) {
+        return declaredMethods.get(0);
+      }
     }
     return null;
   }

@@ -25,11 +25,11 @@ import org.apache.calcite.util.ImmutableIntList;
 import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.mapping.Mappings;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Root of a tree of {@link RelNode}.
@@ -92,7 +92,7 @@ public class RelRoot {
     this.validatedRowType = validatedRowType;
     this.kind = kind;
     this.fields = ImmutableList.copyOf(fields);
-    this.collation = Preconditions.checkNotNull(collation);
+    this.collation = Objects.requireNonNull(collation);
   }
 
   /** Creates a simple RelRoot. */
@@ -140,7 +140,17 @@ public class RelRoot {
   /** Returns the root relational expression, creating a {@link LogicalProject}
    * if necessary to remove fields that are not needed. */
   public RelNode project() {
-    if (isRefTrivial()) {
+    return project(false);
+  }
+
+  /** Returns the root relational expression as a {@link LogicalProject}.
+   *
+   * @param force Create a Project even if all fields are used */
+  public RelNode project(boolean force) {
+    if (isRefTrivial()
+        && (SqlKind.DML.contains(kind)
+            || !force
+            || rel instanceof LogicalProject)) {
       return rel;
     }
     final List<RexNode> projects = new ArrayList<>();

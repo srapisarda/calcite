@@ -32,7 +32,7 @@ import java.util.List;
  * different type classes into one. Inelegant, but since our type system was
  * defined before the advent of Java generics, it avoids a lot of typecasting.
  */
-public interface RelDataType /*extends Type*/ {
+public interface RelDataType {
   int SCALE_NOT_SPECIFIED = Integer.MIN_VALUE;
   int PRECISION_NOT_SPECIFIED = -1;
 
@@ -71,10 +71,18 @@ public interface RelDataType /*extends Type*/ {
   /**
    * Returns the number of fields in a struct type.
    *
-   * <p>This method is equivalent to <code>{@link #getFieldList}
-   * ().size()</code>.
+   * <p>This method is equivalent to
+   * <code>{@link #getFieldList}.size()</code>.
    */
   int getFieldCount();
+
+  /**
+   * Returns the rule for resolving the fields of a structured type,
+   * or {@link StructKind#NONE} if this is not a structured type.
+   *
+   * @return the StructKind that determines how this type's fields are resolved
+   */
+  StructKind getStructKind();
 
   /**
    * Looks up a field by name.
@@ -229,9 +237,10 @@ public interface RelDataType /*extends Type*/ {
   RelDataTypeComparability getComparability();
 
   /**
-   *@return whether it has dynamic structure (for "schema-on-read" table)
+   * @return whether it has dynamic structure (for "schema-on-read" table)
    */
   boolean isDynamicStruct();
+
 }
 
 // End RelDataType.java

@@ -19,8 +19,6 @@ package org.apache.calcite.rel.metadata;
 import org.apache.calcite.plan.RelOptPlanner;
 import org.apache.calcite.rel.RelNode;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Multimap;
 
@@ -31,6 +29,7 @@ import java.lang.reflect.Proxy;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Implementation of the {@link RelMetadataProvider}
@@ -56,8 +55,8 @@ public class CachingRelMetadataProvider implements RelMetadataProvider {
 
   //~ Methods ----------------------------------------------------------------
 
-  public <M extends Metadata> UnboundMetadata<M>
-  apply(Class<? extends RelNode> relClass,
+  public <M extends Metadata> UnboundMetadata<M> apply(
+      Class<? extends RelNode> relClass,
       final Class<? extends M> metadataClass) {
     final UnboundMetadata<M> function =
         underlyingProvider.apply(relClass, metadataClass);
@@ -67,19 +66,17 @@ public class CachingRelMetadataProvider implements RelMetadataProvider {
 
     // TODO jvs 30-Mar-2006: Use meta-metadata to decide which metadata
     // query results can stay fresh until the next Ice Age.
-    return new UnboundMetadata<M>() {
-      public M bind(RelNode rel, RelMetadataQuery mq) {
-        final Metadata metadata = function.bind(rel, mq);
-        return metadataClass.cast(
-            Proxy.newProxyInstance(metadataClass.getClassLoader(),
-                new Class[]{metadataClass},
-                new CachingInvocationHandler(metadata)));
-      }
+    return (rel, mq) -> {
+      final Metadata metadata = function.bind(rel, mq);
+      return metadataClass.cast(
+          Proxy.newProxyInstance(metadataClass.getClassLoader(),
+              new Class[]{metadataClass},
+              new CachingInvocationHandler(metadata)));
     };
   }
 
-  public <M extends Metadata> Multimap<Method, MetadataHandler<M>>
-  handlers(MetadataDef<M> def) {
+  public <M extends Metadata> Multimap<Method, MetadataHandler<M>> handlers(
+      MetadataDef<M> def) {
     return underlyingProvider.handlers(def);
   }
 
@@ -102,8 +99,8 @@ public class CachingRelMetadataProvider implements RelMetadataProvider {
   private class CachingInvocationHandler implements InvocationHandler {
     private final Metadata metadata;
 
-    public CachingInvocationHandler(Metadata metadata) {
-      this.metadata = Preconditions.checkNotNull(metadata);
+    CachingInvocationHandler(Metadata metadata) {
+      this.metadata = Objects.requireNonNull(metadata);
     }
 
     public Object invoke(Object proxy, Method method, Object[] args)
@@ -141,8 +138,7 @@ public class CachingRelMetadataProvider implements RelMetadataProvider {
         }
         return result;
       } catch (InvocationTargetException e) {
-        Throwables.propagateIfPossible(e.getCause());
-        throw e;
+        throw e.getCause();
       }
     }
   }

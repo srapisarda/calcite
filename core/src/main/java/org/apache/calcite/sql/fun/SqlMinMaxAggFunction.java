@@ -24,7 +24,7 @@ import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlSplittableAggFunction;
 import org.apache.calcite.sql.type.OperandTypes;
 import org.apache.calcite.sql.type.ReturnTypes;
-import org.apache.calcite.util.Util;
+import org.apache.calcite.util.Optionality;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -76,7 +76,8 @@ public class SqlMinMaxAggFunction extends SqlAggFunction {
         OperandTypes.COMPARABLE_ORDERED,
         SqlFunctionCategory.SYSTEM,
         false,
-        false);
+        false,
+        Optionality.FORBIDDEN);
     this.argTypes = ImmutableList.of();
     this.minMaxKind = MINMAX_COMPARABLE;
     Preconditions.checkArgument(kind == SqlKind.MIN
@@ -105,6 +106,11 @@ public class SqlMinMaxAggFunction extends SqlAggFunction {
     return minMaxKind;
   }
 
+  @Override public Optionality getDistinctOptionality() {
+    return Optionality.IGNORED;
+  }
+
+  @SuppressWarnings("deprecation")
   public List<RelDataType> getParameterTypes(RelDataTypeFactory typeFactory) {
     switch (minMaxKind) {
     case MINMAX_PRIMITIVE:
@@ -113,10 +119,11 @@ public class SqlMinMaxAggFunction extends SqlAggFunction {
     case MINMAX_COMPARATOR:
       return argTypes.subList(1, 2);
     default:
-      throw Util.newInternal("bad kind: " + minMaxKind);
+      throw new AssertionError("bad kind: " + minMaxKind);
     }
   }
 
+  @SuppressWarnings("deprecation")
   public RelDataType getReturnType(RelDataTypeFactory typeFactory) {
     switch (minMaxKind) {
     case MINMAX_PRIMITIVE:
@@ -125,7 +132,7 @@ public class SqlMinMaxAggFunction extends SqlAggFunction {
     case MINMAX_COMPARATOR:
       return argTypes.get(1);
     default:
-      throw Util.newInternal("bad kind: " + minMaxKind);
+      throw new AssertionError("bad kind: " + minMaxKind);
     }
   }
 

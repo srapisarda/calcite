@@ -178,8 +178,8 @@ public class Handler {
   protected void dump(RelNode rel) {
   }
 
-  private ImmutableList<ImmutableList<RexLiteral>>
-  tuples(Ast.ValuesStmt valuesStmt, RelDataType rowType) {
+  private ImmutableList<ImmutableList<RexLiteral>> tuples(
+      Ast.ValuesStmt valuesStmt, RelDataType rowType) {
     final ImmutableList.Builder<ImmutableList<RexLiteral>> listBuilder =
         ImmutableList.builder();
     for (List<Ast.Node> nodeList : valuesStmt.tupleList) {
@@ -232,7 +232,7 @@ public class Handler {
 
 
   private RelDataType toType(Ast.Schema schema) {
-    final RelDataTypeFactory.FieldInfoBuilder typeBuilder =
+    final RelDataTypeFactory.Builder typeBuilder =
         builder.getTypeFactory().builder();
     for (Ast.FieldSchema fieldSchema : schema.fieldSchemaList) {
       typeBuilder.add(fieldSchema.id.value, toType(fieldSchema.type));
@@ -284,7 +284,7 @@ public class Handler {
 
   private RelDataType toType(Ast.TupleType type) {
     final RelDataTypeFactory typeFactory = builder.getTypeFactory();
-    final RelDataTypeFactory.FieldInfoBuilder builder = typeFactory.builder();
+    final RelDataTypeFactory.Builder builder = typeFactory.builder();
     for (Ast.FieldSchema fieldSchema : type.fieldSchemaList) {
       builder.add(fieldSchema.id.value, toType(fieldSchema.type));
     }

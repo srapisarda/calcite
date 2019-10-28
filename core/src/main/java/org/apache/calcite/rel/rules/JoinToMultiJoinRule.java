@@ -22,6 +22,7 @@ import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.JoinRelType;
+import org.apache.calcite.rel.core.RelFactories;
 import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexBuilder;
@@ -29,14 +30,15 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexUtil;
 import org.apache.calcite.rex.RexVisitorImpl;
+import org.apache.calcite.tools.RelBuilderFactory;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.apache.calcite.util.ImmutableIntList;
 import org.apache.calcite.util.Pair;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -102,21 +104,34 @@ import java.util.Map;
  */
 public class JoinToMultiJoinRule extends RelOptRule {
   public static final JoinToMultiJoinRule INSTANCE =
-      new JoinToMultiJoinRule(LogicalJoin.class);
+      new JoinToMultiJoinRule(LogicalJoin.class, RelFactories.LOGICAL_BUILDER);
 
   //~ Constructors -----------------------------------------------------------
+
+  @Deprecated // to be removed before 2.0
+  public JoinToMultiJoinRule(Class<? extends Join> clazz) {
+    this(clazz, RelFactories.LOGICAL_BUILDER);
+  }
 
   /**
    * Creates a JoinToMultiJoinRule.
    */
-  public JoinToMultiJoinRule(Class<? extends Join> clazz) {
+  public JoinToMultiJoinRule(Class<? extends Join> clazz,
+      RelBuilderFactory relBuilderFactory) {
     super(
         operand(clazz,
             operand(RelNode.class, any()),
-            operand(RelNode.class, any())));
+            operand(RelNode.class, any())),
+        relBuilderFactory, null);
   }
 
   //~ Methods ----------------------------------------------------------------
+
+
+  @Override public boolean matches(RelOptRuleCall call) {
+    final Join origJoin = call.rel(0);
+    return origJoin.getJoinType().projectsRight();
+  }
 
   public void onMatch(RelOptRuleCall call) {
     final Join origJoin = call.rel(0);
@@ -125,8 +140,8 @@ public class JoinToMultiJoinRule extends RelOptRule {
 
     // combine the children MultiJoin inputs into an array of inputs
     // for the new MultiJoin
-    final List<ImmutableBitSet> projFieldsList = Lists.newArrayList();
-    final List<int[]> joinFieldRefCountsList = Lists.newArrayList();
+    final List<ImmutableBitSet> projFieldsList = new ArrayList<>();
+    final List<int[]> joinFieldRefCountsList = new ArrayList<>();
     final List<RelNode> newInputs =
         combineInputs(
             origJoin,
@@ -138,7 +153,7 @@ public class JoinToMultiJoinRule extends RelOptRule {
     // combine the outer join information from the left and right
     // inputs, and include the outer join information from the current
     // join, if it's a left/right outer join
-    final List<Pair<JoinRelType, RexNode>> joinSpecs = Lists.newArrayList();
+    final List<Pair<JoinRelType, RexNode>> joinSpecs = new ArrayList<>();
     combineOuterJoins(
         origJoin,
         newInputs,
@@ -167,7 +182,7 @@ public class JoinToMultiJoinRule extends RelOptRule {
         new MultiJoin(
             origJoin.getCluster(),
             newInputs,
-            RexUtil.composeConjunction(rexBuilder, newJoinFilters, false),
+            RexUtil.composeConjunction(rexBuilder, newJoinFilters),
             origJoin.getRowType(),
             origJoin.getJoinType() == JoinRelType.FULL,
             Pair.right(joinSpecs),
@@ -197,7 +212,7 @@ public class JoinToMultiJoinRule extends RelOptRule {
       RelNode right,
       List<ImmutableBitSet> projFieldsList,
       List<int[]> joinFieldRefCountsList) {
-    final List<RelNode> newInputs = Lists.newArrayList();
+    final List<RelNode> newInputs = new ArrayList<>();
 
     // leave the null generating sides of an outer join intact; don't
     // pull up those children inputs into the array we're constructing
@@ -339,6 +354,8 @@ public class JoinToMultiJoinRule extends RelOptRule {
     if (adjustmentAmount == 0) {
       destJoinSpecs.addAll(srcJoinSpecs);
     } else {
+      assert srcFields != null;
+      assert destFields != null;
       int nFields = srcFields.size();
       int[] adjustments = new int[nFields];
       for (int idx = 0; idx < nFields; idx++) {
@@ -379,7 +396,7 @@ public class JoinToMultiJoinRule extends RelOptRule {
     // AND the join condition if this isn't a left or right outer join;
     // in those cases, the outer join condition is already tracked
     // separately
-    final List<RexNode> filters = Lists.newArrayList();
+    final List<RexNode> filters = new ArrayList<>();
     if ((joinType != JoinRelType.LEFT) && (joinType != JoinRelType.RIGHT)) {
       filters.add(joinRel.getCondition());
     }
@@ -470,7 +487,7 @@ public class JoinToMultiJoinRule extends RelOptRule {
     joinCondition.accept(new InputReferenceCounter(joinCondRefCounts));
 
     // first, make a copy of the ref counters
-    final Map<Integer, int[]> refCountsMap = Maps.newHashMap();
+    final Map<Integer, int[]> refCountsMap = new HashMap<>();
     int nInputs = multiJoinInputs.size();
     int currInput = 0;
     for (int[] origRefCounts : origJoinFieldRefCounts) {
@@ -521,7 +538,7 @@ public class JoinToMultiJoinRule extends RelOptRule {
       Join joinRel,
       RelNode left,
       RelNode right) {
-    final List<RexNode> filters = Lists.newArrayList();
+    final List<RexNode> filters = new ArrayList<>();
     if (right instanceof MultiJoin) {
       final MultiJoin multiRight = (MultiJoin) right;
       filters.add(
@@ -544,7 +561,7 @@ public class JoinToMultiJoinRule extends RelOptRule {
   private class InputReferenceCounter extends RexVisitorImpl<Void> {
     private final int[] refCounts;
 
-    public InputReferenceCounter(int[] refCounts) {
+    InputReferenceCounter(int[] refCounts) {
       super(true);
       this.refCounts = refCounts;
     }

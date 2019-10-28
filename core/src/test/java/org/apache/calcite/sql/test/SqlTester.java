@@ -24,10 +24,12 @@ import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.SqlOperatorTable;
 import org.apache.calcite.sql.validate.SqlConformance;
 import org.apache.calcite.sql.validate.SqlMonotonicity;
+import org.apache.calcite.sql.validate.SqlValidator;
 import org.apache.calcite.test.CalciteAssert;
 import org.apache.calcite.test.SqlValidatorTestCase;
 
 import java.sql.ResultSet;
+import java.util.function.UnaryOperator;
 
 /**
  * SqlTester defines a callback for testing SQL queries and expressions.
@@ -78,12 +80,24 @@ public interface SqlTester extends AutoCloseable, SqlValidatorTestCase.Tester {
    * version. */
   SqlTester withConformance(SqlConformance conformance);
 
+  /** Returns a tester that tests with implicit type coercion on/off. */
+  SqlTester enableTypeCoercion(boolean enabled);
+
+  /** Returns a tester that does not fail validation if it encounters an
+   * unknown function. */
+  SqlTester withLenientOperatorLookup(boolean lenient);
+
   /** Returns a tester that gets connections from a given factory. */
   SqlTester withConnectionFactory(
       CalciteAssert.ConnectionFactory connectionFactory);
 
   /** Returns a tester that uses a given operator table. */
   SqlTester withOperatorTable(SqlOperatorTable operatorTable);
+
+  /** Returns a tester that applies the given transform to a validator before
+   * using it. */
+  SqlTester withValidatorTransform(UnaryOperator<UnaryOperator<SqlValidator>>
+      transform);
 
   /**
    * Tests that a scalar SQL expression returns the expected result and the
@@ -166,7 +180,7 @@ public interface SqlTester extends AutoCloseable, SqlValidatorTestCase.Tester {
    * <pre>checkScalarExact("TRUE AND FALSE", Boolean.TRUE);</pre>
    * </blockquote>
    *
-   * The expected result can be null:
+   * <p>The expected result can be null:
    *
    * <blockquote>
    * <pre>checkScalarExact("NOT UNKNOWN", null);</pre>
@@ -215,7 +229,7 @@ public interface SqlTester extends AutoCloseable, SqlValidatorTestCase.Tester {
    * "VARCHAR(3) NOT NULL");</code>
    * </blockquote>
    *
-   * This method checks length/precision, scale, and whether the type allows
+   * <p>This method checks length/precision, scale, and whether the type allows
    * NULL values, so is more precise than the type-checking done by methods
    * such as {@link #checkScalarExact}.
    *
@@ -314,6 +328,24 @@ public interface SqlTester extends AutoCloseable, SqlValidatorTestCase.Tester {
   void checkAgg(
       String expr,
       String[] inputValues,
+      Object result,
+      double delta);
+
+  /**
+   * Checks that an aggregate expression with multiple args returns the expected
+   * result.
+   *
+   * @param expr        Aggregate expression, e.g. <code>AGG_FUNC(x, x2, x3)</code>
+   * @param inputValues Nested array of input values, e.g. <code>[
+   *                    ["1", null, "2"]
+   *                    ["3", "4", null]
+   *                    ]</code>.
+   * @param result      Expected result
+   * @param delta       Allowable variance from expected result
+   */
+  void checkAggWithMultipleArgs(
+      String expr,
+      String[][] inputValues,
       Object result,
       double delta);
 

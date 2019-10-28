@@ -355,11 +355,12 @@ public interface RelNode extends RelOptNode, Cloneable {
    * is not valid.
    *
    * @param litmus What to do if invalid
+   * @param context Context for validity checking
    * @return Whether relational expression is valid
    * @throws AssertionError if this relational expression is invalid and
    *                        litmus is THROW
    */
-  boolean isValid(Litmus litmus);
+  boolean isValid(Litmus litmus, Context context);
 
   @Deprecated // to be removed before 2.0
   boolean isValid(boolean fail);
@@ -433,13 +434,19 @@ public interface RelNode extends RelOptNode, Cloneable {
 
   /**
    * Accepts a visit from a shuttle. If the shuttle updates expression, then
-   * a copy of the relation should be created.
+   * a copy of the relation should be created. This new relation might have
+   * a different row-type.
    *
    * @param shuttle Shuttle
    * @return A copy of this node incorporating changes made by the shuttle to
    * this node's children
    */
   RelNode accept(RexShuttle shuttle);
+
+  /** Context of a relational expression, for purposes of checking validity. */
+  interface Context {
+    Set<CorrelationId> correlationIds();
+  }
 }
 
 // End RelNode.java

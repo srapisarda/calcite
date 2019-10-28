@@ -28,9 +28,11 @@ import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.prepare.Prepare;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableModify;
+import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.schema.ModifiableTable;
 import org.apache.calcite.util.BuiltInMethod;
 
+import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -42,9 +44,10 @@ public class EnumerableTableModify extends TableModify
     implements EnumerableRel {
   public EnumerableTableModify(RelOptCluster cluster, RelTraitSet traits,
       RelOptTable table, Prepare.CatalogReader catalogReader, RelNode child,
-      Operation operation, List<String> updateColumnList, boolean flattened) {
+      Operation operation, List<String> updateColumnList,
+      List<RexNode> sourceExpressionList, boolean flattened) {
     super(cluster, traits, table, catalogReader, child, operation,
-        updateColumnList, flattened);
+        updateColumnList, sourceExpressionList, flattened);
     assert child.getConvention() instanceof EnumerableConvention;
     assert getConvention() instanceof EnumerableConvention;
     final ModifiableTable modifiableTable =
@@ -63,6 +66,7 @@ public class EnumerableTableModify extends TableModify
         sole(inputs),
         getOperation(),
         getUpdateColumnList(),
+        getSourceExpressionList(),
         isFlattened());
   }
 
@@ -97,10 +101,10 @@ public class EnumerableTableModify extends TableModify
     if (!getInput().getRowType().equals(getRowType())) {
       final JavaTypeFactory typeFactory =
           (JavaTypeFactory) getCluster().getTypeFactory();
+      final JavaRowFormat format = EnumerableTableScan.deduceFormat(table);
       PhysType physType =
-          PhysTypeImpl.of(typeFactory, table.getRowType(),
-              JavaRowFormat.CUSTOM);
-      List<Expression> expressionList = new ArrayList<Expression>();
+          PhysTypeImpl.of(typeFactory, table.getRowType(), format);
+      List<Expression> expressionList = new ArrayList<>();
       final PhysType childPhysType = result.physType;
       final ParameterExpression o_ =
           Expressions.parameter(childPhysType.getJavaRowType(), "o");
@@ -121,20 +125,39 @@ public class EnumerableTableModify extends TableModify
     } else {
       convertedChildExp = childExp;
     }
+    final Method method;
+    switch (getOperation()) {
+    case INSERT:
+      method = BuiltInMethod.INTO.method;
+      break;
+    case DELETE:
+      method = BuiltInMethod.REMOVE_ALL.method;
+      break;
+    default:
+      throw new AssertionError(getOperation());
+    }
     builder.add(
         Expressions.statement(
             Expressions.call(
-                convertedChildExp, "into", collectionParameter)));
+                convertedChildExp, method, collectionParameter)));
+    final Expression updatedCountParameter =
+        builder.append(
+            "updatedCount",
+            Expressions.call(collectionParameter, "size"),
+            false);
     builder.add(
         Expressions.return_(
             null,
             Expressions.call(
                 BuiltInMethod.SINGLETON_ENUMERABLE.method,
                 Expressions.convert_(
-                    Expressions.subtract(
-                        Expressions.call(
-                            collectionParameter, "size"),
-                        countParameter),
+                    Expressions.condition(
+                        Expressions.greaterThanOrEqual(
+                            updatedCountParameter, countParameter),
+                        Expressions.subtract(
+                            updatedCountParameter, countParameter),
+                        Expressions.subtract(
+                            countParameter, updatedCountParameter)),
                     long.class))));
     final PhysType physType =
         PhysTypeImpl.of(
@@ -144,6 +167,7 @@ public class EnumerableTableModify extends TableModify
                 ? JavaRowFormat.ARRAY : JavaRowFormat.SCALAR);
     return implementor.result(physType, builder.toBlock());
   }
+
 }
 
 // End EnumerableTableModify.java

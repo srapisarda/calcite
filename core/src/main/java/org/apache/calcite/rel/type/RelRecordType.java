@@ -21,42 +21,83 @@ import org.apache.calcite.sql.type.SqlTypeName;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * RelRecordType represents a structured type having named fields.
  */
 public class RelRecordType extends RelDataTypeImpl implements Serializable {
+  /** Name resolution policy; usually {@link StructKind#FULLY_QUALIFIED}. */
+  private final StructKind kind;
+  private final boolean nullable;
+
   //~ Constructors -----------------------------------------------------------
 
   /**
    * Creates a <code>RecordType</code>. This should only be called from a
    * factory method.
+   * @param kind Name resolution policy
+   * @param fields List of fields
+   * @param nullable Whether this record type allows null values
+   */
+  public RelRecordType(StructKind kind, List<RelDataTypeField> fields, boolean nullable) {
+    super(fields);
+    this.nullable = nullable;
+    this.kind = Objects.requireNonNull(kind);
+    computeDigest();
+  }
+
+  /**
+   * Creates a <code>RecordType</code>. This should only be called from a
+   * factory method.
+   * Shorthand for <code>RelRecordType(kind, fields, false)</code>.
+   */
+  public RelRecordType(StructKind kind, List<RelDataTypeField> fields) {
+    this(kind, fields, false);
+  }
+
+  /**
+   * Creates a <code>RecordType</code>. This should only be called from a
+   * factory method.
+   * Shorthand for <code>RelRecordType(StructKind.FULLY_QUALIFIED, fields, false)</code>.
    */
   public RelRecordType(List<RelDataTypeField> fields) {
-    super(fields);
-    computeDigest();
+    this(StructKind.FULLY_QUALIFIED, fields, false);
   }
 
   //~ Methods ----------------------------------------------------------------
 
-  // implement RelDataType
-  public SqlTypeName getSqlTypeName() {
+  @Override public SqlTypeName getSqlTypeName() {
     return SqlTypeName.ROW;
   }
 
-  // implement RelDataType
-  public boolean isNullable() {
-    return false;
+  @Override public boolean isNullable() {
+    return nullable;
   }
 
-  // implement RelDataType
-  public int getPrecision() {
+  @Override public int getPrecision() {
     // REVIEW: angel 18-Aug-2005 Put in fake implementation for precision
     return 0;
   }
 
+  @Override public StructKind getStructKind() {
+    return kind;
+  }
+
   protected void generateTypeString(StringBuilder sb, boolean withDetail) {
-    sb.append("RecordType(");
+    sb.append("RecordType");
+    switch (kind) {
+    case PEEK_FIELDS:
+      sb.append(":peek");
+      break;
+    case PEEK_FIELDS_DEFAULT:
+      sb.append(":peek_default");
+      break;
+    case PEEK_FIELDS_NO_EXPAND:
+      sb.append(":peek_no_expand");
+      break;
+    }
+    sb.append("(");
     for (Ord<RelDataTypeField> ord : Ord.zip(fieldList)) {
       if (ord.i > 0) {
         sb.append(", ");

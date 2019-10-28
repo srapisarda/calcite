@@ -20,11 +20,11 @@ import org.apache.calcite.plan.volcano.RelSubset;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.metadata.RelMetadataProvider;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
+import org.apache.calcite.rex.RexExecutor;
 import org.apache.calcite.util.CancelFlag;
+import org.apache.calcite.util.Util;
 
-import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -32,10 +32,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
 import static org.apache.calcite.util.Static.RESOURCE;
-
 
 /**
  * Abstract base for implementations of the {@link RelOptPlanner} interface.
@@ -60,7 +60,7 @@ public abstract class AbstractRelOptPlanner implements RelOptPlanner {
 
   private Pattern ruleDescExclusionFilter;
 
-  private CancelFlag cancelFlag;
+  private final AtomicBoolean cancelFlag;
 
   private final Set<Class<? extends RelNode>> classes = new HashSet<>();
 
@@ -69,14 +69,14 @@ public abstract class AbstractRelOptPlanner implements RelOptPlanner {
   /** External context. Never null. */
   protected final Context context;
 
-  private Executor executor;
+  private RexExecutor executor;
 
   //~ Constructors -----------------------------------------------------------
 
   /**
    * Creates an AbstractRelOptPlanner.
    */
-  protected AbstractRelOptPlanner(RelOptCostFactory costFactory, //
+  protected AbstractRelOptPlanner(RelOptCostFactory costFactory,
       Context context) {
     assert costFactory != null;
     this.costFactory = costFactory;
@@ -85,9 +85,9 @@ public abstract class AbstractRelOptPlanner implements RelOptPlanner {
     }
     this.context = context;
 
-    // In case no one calls setCancelFlag, set up a
-    // dummy here.
-    cancelFlag = new CancelFlag();
+    final CancelFlag cancelFlag = context.unwrap(CancelFlag.class);
+    this.cancelFlag = cancelFlag != null ? cancelFlag.atomicBoolean
+        : new AtomicBoolean();
 
     // Add abstract RelNode classes. No RelNodes will ever be registered with
     // these types, but some operands may use them.
@@ -107,8 +107,9 @@ public abstract class AbstractRelOptPlanner implements RelOptPlanner {
     return costFactory;
   }
 
+  @SuppressWarnings("deprecation")
   public void setCancelFlag(CancelFlag cancelFlag) {
-    this.cancelFlag = cancelFlag;
+    // ignored
   }
 
   /**
@@ -116,7 +117,7 @@ public abstract class AbstractRelOptPlanner implements RelOptPlanner {
    * an exception.
    */
   public void checkCancel() {
-    if (cancelFlag.isCancelRequested()) {
+    if (cancelFlag.get()) {
       throw RESOURCE.preparationAborted().ex();
     }
   }
@@ -197,6 +198,10 @@ public abstract class AbstractRelOptPlanner implements RelOptPlanner {
     // ignore - this planner does not support materializations
   }
 
+  public List<RelOptMaterialization> getMaterializations() {
+    return ImmutableList.of();
+  }
+
   public void addLattice(RelOptLattice lattice) {
     // ignore - this planner does not support lattices
   }
@@ -241,8 +246,9 @@ public abstract class AbstractRelOptPlanner implements RelOptPlanner {
     return mq.getCumulativeCost(rel);
   }
 
+  @SuppressWarnings("deprecation")
   public RelOptCost getCost(RelNode rel) {
-    final RelMetadataQuery mq = RelMetadataQuery.instance();
+    final RelMetadataQuery mq = rel.getCluster().getMetadataQuery();
     return getCost(rel, mq);
   }
 
@@ -266,11 +272,11 @@ public abstract class AbstractRelOptPlanner implements RelOptPlanner {
     return ImmutableList.of();
   }
 
-  public void setExecutor(Executor executor) {
+  public void setExecutor(RexExecutor executor) {
     this.executor = executor;
   }
 
-  public Executor getExecutor() {
+  public RexExecutor getExecutor() {
     return executor;
   }
 
@@ -413,12 +419,7 @@ public abstract class AbstractRelOptPlanner implements RelOptPlanner {
   /** Returns sub-classes of relational expression. */
   public Iterable<Class<? extends RelNode>> subClasses(
       final Class<? extends RelNode> clazz) {
-    return Iterables.filter(classes,
-        new Predicate<Class<? extends RelNode>>() {
-          public boolean apply(Class<? extends RelNode> input) {
-            return clazz.isAssignableFrom(input);
-          }
-        });
+    return Util.filter(classes, clazz::isAssignableFrom);
   }
 }
 

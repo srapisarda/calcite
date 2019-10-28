@@ -28,22 +28,26 @@ import org.apache.calcite.linq4j.tree.MemberDeclaration;
 import org.apache.calcite.linq4j.tree.ParameterExpression;
 import org.apache.calcite.linq4j.tree.Types;
 import org.apache.calcite.plan.RelOptCluster;
+import org.apache.calcite.plan.RelOptPredicateList;
 import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollationTraitDef;
-import org.apache.calcite.rel.RelDistribution;
 import org.apache.calcite.rel.RelDistributionTraitDef;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Calc;
 import org.apache.calcite.rel.metadata.RelMdCollation;
 import org.apache.calcite.rel.metadata.RelMdDistribution;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
+import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexProgram;
+import org.apache.calcite.rex.RexSimplify;
+import org.apache.calcite.rex.RexUtil;
+import org.apache.calcite.sql.validate.SqlConformance;
+import org.apache.calcite.sql.validate.SqlConformanceEnum;
 import org.apache.calcite.util.BuiltInMethod;
 import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.Util;
 
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 
 import java.lang.reflect.Modifier;
@@ -87,21 +91,13 @@ public class EnumerableCalc extends Calc implements EnumerableRel {
   public static EnumerableCalc create(final RelNode input,
       final RexProgram program) {
     final RelOptCluster cluster = input.getCluster();
-    final RelMetadataQuery mq = RelMetadataQuery.instance();
+    final RelMetadataQuery mq = cluster.getMetadataQuery();
     final RelTraitSet traitSet = cluster.traitSet()
         .replace(EnumerableConvention.INSTANCE)
         .replaceIfs(RelCollationTraitDef.INSTANCE,
-            new Supplier<List<RelCollation>>() {
-              public List<RelCollation> get() {
-                return RelMdCollation.calc(mq, input, program);
-              }
-            })
+            () -> RelMdCollation.calc(mq, input, program))
         .replaceIf(RelDistributionTraitDef.INSTANCE,
-            new Supplier<RelDistribution>() {
-              public RelDistribution get() {
-                return RelMdDistribution.calc(mq, input, program);
-              }
-            });
+            () -> RelMdDistribution.calc(mq, input, program));
     return new EnumerableCalc(cluster, traitSet, input, program);
   }
 
@@ -146,8 +142,12 @@ public class EnumerableCalc extends Calc implements EnumerableRel {
                 BuiltInMethod.ENUMERATOR_CURRENT.method),
             inputJavaType);
 
-    final RexProgram program =
-        this.program.normalize(getCluster().getRexBuilder(), true);
+    final RexBuilder rexBuilder = getCluster().getRexBuilder();
+    final RelMetadataQuery mq = getCluster().getMetadataQuery();
+    final RelOptPredicateList predicates = mq.getPulledUpPredicates(child);
+    final RexSimplify simplify =
+        new RexSimplify(rexBuilder, predicates, RexUtil.EXECUTOR);
+    final RexProgram program = this.program.normalize(rexBuilder, simplify);
 
     BlockStatement moveNextBody;
     if (program.getCondition() == null) {
@@ -166,7 +166,7 @@ public class EnumerableCalc extends Calc implements EnumerableRel {
               new RexToLixTranslator.InputGetterImpl(
                   Collections.singletonList(
                       Pair.of(input, result.physType))),
-              implementor.allCorrelateVariables);
+              implementor.allCorrelateVariables, implementor.getConformance());
       builder2.add(
           Expressions.ifThen(
               condition,
@@ -185,10 +185,14 @@ public class EnumerableCalc extends Calc implements EnumerableRel {
     }
 
     final BlockBuilder builder3 = new BlockBuilder();
+    final SqlConformance conformance =
+        (SqlConformance) implementor.map.getOrDefault("_conformance",
+            SqlConformanceEnum.DEFAULT);
     List<Expression> expressions =
         RexToLixTranslator.translateProjects(
             program,
             typeFactory,
+            conformance,
             builder3,
             physType,
             DataContext.ROOT,

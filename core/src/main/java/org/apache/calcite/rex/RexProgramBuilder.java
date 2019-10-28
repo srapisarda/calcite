@@ -16,18 +16,19 @@
  */
 package org.apache.calcite.rex;
 
+import org.apache.calcite.plan.RelOptPredicateList;
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.util.Litmus;
 import org.apache.calcite.util.Pair;
-import org.apache.calcite.util.Util;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Workspace for constructing a {@link RexProgram}.
@@ -42,24 +43,32 @@ public class RexProgramBuilder {
   private final RexBuilder rexBuilder;
   private final RelDataType inputRowType;
   private final List<RexNode> exprList = new ArrayList<>();
-  private final Map<Pair<String, String>, RexLocalRef> exprMap =
+  private final Map<Pair<RexNode, String>, RexLocalRef> exprMap =
       new HashMap<>();
   private final List<RexLocalRef> localRefList = new ArrayList<>();
   private final List<RexLocalRef> projectRefList = new ArrayList<>();
   private final List<String> projectNameList = new ArrayList<>();
+  private final RexSimplify simplify;
   private RexLocalRef conditionRef = null;
   private boolean validating;
 
   //~ Constructors -----------------------------------------------------------
 
   /**
-   * Creates a program-builder.
+   * Creates a program-builder that will not simplify.
    */
   public RexProgramBuilder(RelDataType inputRowType, RexBuilder rexBuilder) {
-    assert inputRowType != null;
-    assert rexBuilder != null;
-    this.inputRowType = inputRowType;
-    this.rexBuilder = rexBuilder;
+    this(inputRowType, rexBuilder, null);
+  }
+
+  /**
+   * Creates a program-builder.
+   */
+  private RexProgramBuilder(RelDataType inputRowType, RexBuilder rexBuilder,
+      RexSimplify simplify) {
+    this.inputRowType = Objects.requireNonNull(inputRowType);
+    this.rexBuilder = Objects.requireNonNull(rexBuilder);
+    this.simplify = simplify; // may be null
     this.validating = assertionsAreEnabled();
 
     // Pre-create an expression for each input field.
@@ -81,7 +90,7 @@ public class RexProgramBuilder {
    * @param condition      Condition, or null
    * @param outputRowType  Output row type
    * @param normalize      Whether to normalize
-   * @param simplify       Whether to simplify
+   * @param simplify       Simplifier, or null to not simplify
    */
   private RexProgramBuilder(
       RexBuilder rexBuilder,
@@ -91,8 +100,8 @@ public class RexProgramBuilder {
       RexNode condition,
       final RelDataType outputRowType,
       boolean normalize,
-      boolean simplify) {
-    this(inputRowType, rexBuilder);
+      RexSimplify simplify) {
+    this(inputRowType, rexBuilder, simplify);
 
     // Create a shuttle for registering input expressions.
     final RexShuttle shuttle =
@@ -115,8 +124,8 @@ public class RexProgramBuilder {
     for (Pair<? extends RexNode, RelDataTypeField> pair
         : Pair.zip(projectList, fieldList)) {
       final RexNode project;
-      if (simplify) {
-        project = RexUtil.simplify(rexBuilder, pair.left.accept(expander));
+      if (simplify != null) {
+        project = simplify.simplify(pair.left.accept(expander));
       } else {
         project = pair.left;
       }
@@ -127,8 +136,8 @@ public class RexProgramBuilder {
 
     // Register the condition, if there is one.
     if (condition != null) {
-      if (simplify) {
-        condition = RexUtil.simplify(rexBuilder,
+      if (simplify != null) {
+        condition = simplify.simplify(
             rexBuilder.makeCall(SqlStdOperatorTable.IS_TRUE,
                 condition.accept(expander)));
         if (condition.isAlwaysTrue()) {
@@ -149,6 +158,7 @@ public class RexProgramBuilder {
    */
   private static boolean assertionsAreEnabled() {
     boolean assertionsEnabled = false;
+    //noinspection AssertWithSideEffects
     assert assertionsEnabled = true;
     return assertionsEnabled;
   }
@@ -163,21 +173,18 @@ public class RexProgramBuilder {
             if (index < fields.size()) {
               final RelDataTypeField inputField = fields.get(index);
               if (input.getType() != inputField.getType()) {
-                throw Util.newInternal("in expression " + expr
-                    + ", field reference " + input
-                    + " has inconsistent type");
+                throw new AssertionError("in expression " + expr
+                    + ", field reference " + input + " has inconsistent type");
               }
             } else {
               if (index >= fieldOrdinal) {
-                throw Util.newInternal("in expression " + expr
-                    + ", field reference " + input
-                    + " is out of bounds");
+                throw new AssertionError("in expression " + expr
+                    + ", field reference " + input + " is out of bounds");
               }
               RexNode refExpr = exprList.get(index);
               if (refExpr.getType() != input.getType()) {
-                throw Util.newInternal("in expression " + expr
-                    + ", field reference " + input
-                    + " has inconsistent type");
+                throw new AssertionError("in expression " + expr
+                    + ", field reference " + input + " has inconsistent type");
               }
             }
             return null;
@@ -317,10 +324,12 @@ public class RexProgramBuilder {
    *              sub-expression exists.
    */
   private RexLocalRef registerInternal(RexNode expr, boolean force) {
-    expr = RexUtil.simplify(rexBuilder, expr);
+    final RexSimplify simplify =
+        new RexSimplify(rexBuilder, RelOptPredicateList.EMPTY, RexUtil.EXECUTOR);
+    expr = simplify.simplifyPreservingType(expr);
 
     RexLocalRef ref;
-    final Pair<String, String> key;
+    final Pair<RexNode, String> key;
     if (expr instanceof RexLocalRef) {
       key = null;
       ref = (RexLocalRef) expr;
@@ -423,10 +432,8 @@ public class RexProgramBuilder {
   }
 
   private RelDataType computeOutputRowType() {
-    return RexUtil.createStructType(
-        rexBuilder.typeFactory,
-        projectRefList,
-        projectNameList);
+    return RexUtil.createStructType(rexBuilder.typeFactory, projectRefList,
+        projectNameList, null);
   }
 
   private void generateMissingNames() {
@@ -465,7 +472,7 @@ public class RexProgramBuilder {
       RexProgram program,
       RexBuilder rexBuilder,
       boolean normalize) {
-    assert program.isValid(Litmus.THROW);
+    assert program.isValid(Litmus.THROW, null);
     final RelDataType inputRowType = program.getInputRowType();
     final List<RexLocalRef> projectRefs = program.getProjectList();
     final RexLocalRef conditionRef = program.getCondition();
@@ -496,7 +503,7 @@ public class RexProgramBuilder {
    * expressions must have maximum depth 1)
    * </ul>
    *
-   * there are additional constraints:
+   * <p>there are additional constraints:
    *
    * <ul>
    * <li>Expressions appear in the left-deep order they are needed by
@@ -525,7 +532,26 @@ public class RexProgramBuilder {
       final RexNode condition,
       final RelDataType outputRowType,
       boolean normalize,
-      boolean simplify) {
+      RexSimplify simplify) {
+    return new RexProgramBuilder(rexBuilder, inputRowType, exprList,
+        projectList, condition, outputRowType, normalize, simplify);
+  }
+
+  @Deprecated // to be removed before 2.0
+  public static RexProgramBuilder create(
+      RexBuilder rexBuilder,
+      final RelDataType inputRowType,
+      final List<RexNode> exprList,
+      final List<? extends RexNode> projectList,
+      final RexNode condition,
+      final RelDataType outputRowType,
+      boolean normalize,
+      boolean simplify_) {
+    RexSimplify simplify = null;
+    if (simplify_) {
+      simplify = new RexSimplify(rexBuilder, RelOptPredicateList.EMPTY,
+          RexUtil.EXECUTOR);
+    }
     return new RexProgramBuilder(rexBuilder, inputRowType, exprList,
         projectList, condition, outputRowType, normalize, simplify);
   }
@@ -540,7 +566,7 @@ public class RexProgramBuilder {
       final RelDataType outputRowType,
       boolean normalize) {
     return create(rexBuilder, inputRowType, exprList, projectList, condition,
-        outputRowType, normalize, false);
+        outputRowType, normalize, null);
   }
 
   /**
@@ -586,7 +612,7 @@ public class RexProgramBuilder {
   public static RexProgram normalize(
       RexBuilder rexBuilder,
       RexProgram program) {
-    return program.normalize(rexBuilder, false);
+    return program.normalize(rexBuilder, null);
   }
 
   /**
@@ -674,15 +700,14 @@ public class RexProgramBuilder {
    *
    * <p>All expressions become common sub-expressions. For example, the query
    *
-   * <pre>{@code
-   * SELECT x + 1 AS p, x + y AS q FROM (
+   * <blockquote><pre>SELECT x + 1 AS p, x + y AS q FROM (
    *   SELECT a + b AS x, c AS y
    *   FROM t
-   *   WHERE c = 6)}</pre>
+   *   WHERE c = 6)}</pre></blockquote>
    *
-   * would be represented as the programs
+   * <p>would be represented as the programs
    *
-   * <pre>
+   * <blockquote><pre>
    *   Calc:
    *       Projects={$2, $3},
    *       Condition=null,
@@ -691,11 +716,11 @@ public class RexProgramBuilder {
    *       Projects={$3, $2},
    *       Condition={$4}
    *       Exprs={$0, $1, $2, $0 + $1, $2 = 6}
-   * </pre>
+   * </pre></blockquote>
    *
    * <p>The merged program is
    *
-   * <pre>
+   * <blockquote><pre>
    *   Calc(
    *      Projects={$4, $5}
    *      Condition=$6
@@ -706,7 +731,7 @@ public class RexProgramBuilder {
    *             4: ($3 + 1)  // p = x + 1
    *             5: ($3 + $2) // q = x + y
    *             6: ($2 = 6)  // c = 6
-   * </pre>
+   * </pre></blockquote>
    *
    * <p>Another example:</p>
    *
@@ -719,7 +744,7 @@ public class RexProgramBuilder {
    * WHERE x = 5</pre>
    * </blockquote>
    *
-   * becomes
+   * <p>becomes
    *
    * <blockquote>
    * <pre>SELECT a + b AS x, c AS y
@@ -742,8 +767,8 @@ public class RexProgramBuilder {
       boolean normalize) {
     // Initialize a program builder with the same expressions, outputs
     // and condition as the bottom program.
-    assert bottomProgram.isValid(Litmus.THROW);
-    assert topProgram.isValid(Litmus.THROW);
+    assert bottomProgram.isValid(Litmus.THROW, null);
+    assert topProgram.isValid(Litmus.THROW, null);
     final RexProgramBuilder progBuilder =
         RexProgramBuilder.forProgram(bottomProgram, rexBuilder, false);
 
@@ -761,7 +786,7 @@ public class RexProgramBuilder {
       progBuilder.addProject(pair.left, pair.right);
     }
     RexProgram mergedProg = progBuilder.getProgram(normalize);
-    assert mergedProg.isValid(Litmus.THROW);
+    assert mergedProg.isValid(Litmus.THROW, null);
     assert mergedProg.getOutputRowType() == topProgram.getOutputRowType();
     return mergedProg;
   }
@@ -953,8 +978,8 @@ public class RexProgramBuilder {
         if (expr instanceof RexLocalRef) {
           local = (RexLocalRef) expr;
           if (local.index >= index) {
-            throw Util.newInternal("expr " + local
-                + " references later expr " + local.index);
+            throw new AssertionError(
+                "expr " + local + " references later expr " + local.index);
           }
         } else {
           // Add expression to the list, just so that subsequent
@@ -995,7 +1020,7 @@ public class RexProgramBuilder {
   private class RegisterOutputShuttle extends RegisterShuttle {
     private final List<RexNode> localExprList;
 
-    public RegisterOutputShuttle(List<RexNode> localExprList) {
+    RegisterOutputShuttle(List<RexNode> localExprList) {
       super();
       this.localExprList = localExprList;
     }

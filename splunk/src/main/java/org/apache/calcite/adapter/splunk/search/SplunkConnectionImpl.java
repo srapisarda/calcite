@@ -19,7 +19,8 @@ package org.apache.calcite.adapter.splunk.search;
 import org.apache.calcite.adapter.splunk.util.StringUtils;
 import org.apache.calcite.linq4j.Enumerator;
 import org.apache.calcite.linq4j.Linq4j;
-import org.apache.calcite.runtime.HttpUtils;
+import org.apache.calcite.util.Unsafe;
+import org.apache.calcite.util.Util;
 
 import au.com.bytecode.opencsv.CSVReader;
 
@@ -35,10 +36,12 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -55,13 +58,13 @@ public class SplunkConnectionImpl implements SplunkConnection {
 
   private static final Pattern SESSION_KEY =
       Pattern.compile(
-          "<response>\\s*<sessionKey>([0-9a-f]+)</sessionKey>\\s*</response>");
+          "<sessionKey>([0-9a-zA-Z^_]+)</sessionKey>");
 
   final URL url;
   final String username;
   final String password;
   String sessionKey;
-  final Map<String, String> requestHeaders = new HashMap<String, String>();
+  final Map<String, String> requestHeaders = new HashMap<>();
 
   public SplunkConnectionImpl(String url, String username, String password)
       throws MalformedURLException {
@@ -88,7 +91,7 @@ public class SplunkConnectionImpl implements SplunkConnection {
 
     try {
       String loginUrl =
-          String.format(
+          String.format(Locale.ROOT,
               "%s://%s:%d/services/auth/login",
               url.getProtocol(),
               url.getHost(),
@@ -98,12 +101,7 @@ public class SplunkConnectionImpl implements SplunkConnection {
       appendURLEncodedArgs(
           data, "username", username, "password", password);
 
-      rd = new BufferedReader(
-          new InputStreamReader(
-              post(
-                  loginUrl,
-                  data,
-                  requestHeaders)));
+      rd = Util.reader(post(loginUrl, data, requestHeaders));
 
       String line;
       StringBuilder reply = new StringBuilder();
@@ -142,14 +140,14 @@ public class SplunkConnectionImpl implements SplunkConnection {
       List<String> wantedFields,
       SearchResultListener srl) {
     String searchUrl =
-        String.format(
+        String.format(Locale.ROOT,
             "%s://%s:%d/services/search/jobs/export",
             url.getProtocol(),
             url.getHost(),
             url.getPort());
 
     StringBuilder data = new StringBuilder();
-    Map<String, String> args = new LinkedHashMap<String, String>();
+    Map<String, String> args = new LinkedHashMap<>();
     if (otherArgs != null) {
       args.putAll(otherArgs);
     }
@@ -182,19 +180,18 @@ public class SplunkConnectionImpl implements SplunkConnection {
     }
   }
 
-  private static void parseResults(InputStream in, SearchResultListener srl)
-      throws IOException {
-    CSVReader csvr = new CSVReader(new InputStreamReader(in));
-    try {
-      String [] header = csvr.readNext();
-
+  private static void parseResults(InputStream in, SearchResultListener srl) {
+    try (CSVReader r = new CSVReader(
+        new BufferedReader(
+            new InputStreamReader(in, StandardCharsets.UTF_8)))) {
+      String[] header = r.readNext();
       if (header != null
           && header.length > 0
           && !(header.length == 1 && header[0].isEmpty())) {
         srl.setFieldNames(header);
 
         String[] line;
-        while ((line = csvr.readNext()) != null) {
+        while ((line = r.readNext()) != null) {
           if (line.length == header.length) {
             srl.processSearchResult(line);
           }
@@ -204,8 +201,6 @@ public class SplunkConnectionImpl implements SplunkConnection {
       StringWriter sw = new StringWriter();
       ignore.printStackTrace(new PrintWriter(sw));
       LOGGER.warn("{}\n{}", ignore.getMessage(), sw);
-    } finally {
-      HttpUtils.close(csvr); // CSVReader closes the input stream too
     }
   }
 
@@ -224,30 +219,30 @@ public class SplunkConnectionImpl implements SplunkConnection {
 
   public static void printUsage(String errorMsg) {
     String[] strings = {
-      "Usage: java Connection -<arg-name> <arg-value>",
-      "The following <arg-name> are valid",
-      "search        - required, search string to execute",
-      "field_list    - "
-        + "required, list of fields to request, comma delimited",
-      "uri           - "
-        + "uri to splunk's mgmt port, default: https://localhost:8089",
-      "username      - "
-        + "username to use for authentication, default: admin",
-      "password      - "
-        + "password to use for authentication, default: changeme",
-      "earliest_time - earliest time for the search, default: -24h",
-      "latest_time   - latest time for the search, default: now",
-      "-print        - whether to print results or just the summary"
+        "Usage: java Connection -<arg-name> <arg-value>",
+        "The following <arg-name> are valid",
+        "search        - required, search string to execute",
+        "field_list    - "
+          + "required, list of fields to request, comma delimited",
+        "uri           - "
+          + "uri to splunk's mgmt port, default: https://localhost:8089",
+        "username      - "
+          + "username to use for authentication, default: admin",
+        "password      - "
+          + "password to use for authentication, default: changeme",
+        "earliest_time - earliest time for the search, default: -24h",
+        "latest_time   - latest time for the search, default: now",
+        "-print        - whether to print results or just the summary"
     };
     System.err.println(errorMsg);
     for (String s : strings) {
       System.err.println(s);
     }
-    System.exit(1);
+    Unsafe.systemExit(1);
   }
 
   public static void main(String[] args) throws MalformedURLException {
-    Map<String, String> argsMap = new HashMap<String, String>();
+    Map<String, String> argsMap = new HashMap<>();
     argsMap.put("uri",           "https://localhost:8089");
     argsMap.put("username",      "admin");
     argsMap.put("password",      "changeme");
@@ -275,7 +270,7 @@ public class SplunkConnectionImpl implements SplunkConnection {
             argsMap.get("username"),
             argsMap.get("password"));
 
-    Map<String, String> searchArgs = new HashMap<String, String>();
+    Map<String, String> searchArgs = new HashMap<>();
     searchArgs.put("earliest_time", argsMap.get("earliest_time"));
     searchArgs.put("latest_time", argsMap.get("latest_time"));
     searchArgs.put(
@@ -289,8 +284,7 @@ public class SplunkConnectionImpl implements SplunkConnection {
     long start = System.currentTimeMillis();
     c.getSearchResults(search, searchArgs, null, dummy);
 
-    System.out.printf(
-        "received %d results in %dms\n",
+    System.out.printf(Locale.ROOT, "received %d results in %dms\n",
         dummy.getResultCount(),
         System.currentTimeMillis() - start);
   }
@@ -316,7 +310,8 @@ public class SplunkConnectionImpl implements SplunkConnection {
       resultCount++;
       if (print) {
         for (int i = 0; i < this.fieldNames.length; ++i) {
-          System.out.printf("%s=%s\n", this.fieldNames[i], values[i]);
+          System.out.printf(Locale.ROOT, "%s=%s\n", this.fieldNames[i],
+              values[i]);
         }
         System.out.println();
       }
@@ -352,7 +347,10 @@ public class SplunkConnectionImpl implements SplunkConnection {
     private int source;
 
     public SplunkResultEnumerator(InputStream in, List<String> wantedFields) {
-      csvReader = new CSVReader(new InputStreamReader(in));
+      csvReader =
+          new CSVReader(
+              new BufferedReader(
+                  new InputStreamReader(in, StandardCharsets.UTF_8)));
       try {
         fieldNames = csvReader.readNext();
         if (fieldNames == null

@@ -40,11 +40,7 @@ public class SqlExtractFunction extends SqlFunction {
   // SQL2003, Part 2, Section 4.4.3 - extract returns a exact numeric
   // TODO: Return type should be decimal for seconds
   public SqlExtractFunction() {
-    super(
-        "EXTRACT",
-        SqlKind.OTHER_FUNCTION,
-        ReturnTypes.BIGINT_NULLABLE,
-        null,
+    super("EXTRACT", SqlKind.EXTRACT, ReturnTypes.BIGINT_NULLABLE, null,
         OperandTypes.INTERVALINTERVAL_INTERVALDATETIME,
         SqlFunctionCategory.SYSTEM);
   }
@@ -69,7 +65,7 @@ public class SqlExtractFunction extends SqlFunction {
   }
 
   @Override public SqlMonotonicity getMonotonicity(SqlOperatorBinding call) {
-    switch ((TimeUnitRange) call.getOperandLiteralValue(0)) {
+    switch (call.getOperandLiteralValue(0, TimeUnitRange.class)) {
     case YEAR:
       return call.getOperandMonotonicity(1).unstrict();
     default:

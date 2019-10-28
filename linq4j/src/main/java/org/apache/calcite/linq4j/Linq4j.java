@@ -18,8 +18,6 @@ package org.apache.calcite.linq4j;
 
 import org.apache.calcite.linq4j.function.Function1;
 
-import com.google.common.collect.Lists;
-
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -27,6 +25,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.RandomAccess;
 
 /**
@@ -41,9 +40,7 @@ public abstract class Linq4j {
       Class... parameterTypes) {
     try {
       return Class.forName(className).getMethod(methodName, parameterTypes);
-    } catch (NoSuchMethodException e) {
-      return null;
-    } catch (ClassNotFoundException e) {
+    } catch (NoSuchMethodException | ClassNotFoundException e) {
       return null;
     }
   }
@@ -234,7 +231,7 @@ public abstract class Linq4j {
    *
    * <blockquote><code>Linq4j.cast(list, Integer.class)</code></blockquote>
    *
-   * to convert the list of an enumerable that can be queried using the
+   * <p>to convert the list of an enumerable that can be queried using the
    * standard query operators.
    *
    * <p>If an element cannot be cast to type &lt;TResult&gt;, this method will
@@ -275,7 +272,7 @@ public abstract class Linq4j {
    *
    * <blockquote><code>Linq4j.ofType(list, Integer.class)</code></blockquote>
    *
-   * to convert the list of an enumerable that can be queried using the
+   * <p>to convert the list of an enumerable that can be queried using the
    * standard query operators.
    *
    * @see Enumerable#cast(Class)
@@ -390,15 +387,13 @@ public abstract class Linq4j {
   /** Returns the cartesian product of an iterable of iterables. */
   public static <T> Iterable<List<T>> product(
       final Iterable<? extends Iterable<T>> iterables) {
-    return new Iterable<List<T>>() {
-      public Iterator<List<T>> iterator() {
-        final List<Enumerator<T>> enumerators = Lists.newArrayList();
-        for (Iterable<T> iterable : iterables) {
-          enumerators.add(iterableEnumerator(iterable));
-        }
-        return enumeratorIterator(
-            new CartesianProductListEnumerator<>(enumerators));
+    return () -> {
+      final List<Enumerator<T>> enumerators = new ArrayList<>();
+      for (Iterable<T> iterable : iterables) {
+        enumerators.add(iterableEnumerator(iterable));
       }
+      return enumeratorIterator(
+          new CartesianProductListEnumerator<>(enumerators));
     };
   }
 
@@ -409,7 +404,7 @@ public abstract class Linq4j {
    */
   @Deprecated // to be removed before 2.0
   public static <T> boolean equals(T t0, T t1) {
-    return t0 == t1 || t0 != null && t0.equals(t1);
+    return Objects.equals(t0, t1);
   }
 
   /**
@@ -440,7 +435,9 @@ public abstract class Linq4j {
     }
   }
 
-  /** Iterable enumerator. */
+  /** Iterable enumerator.
+   *
+   * @param <T> element type */
   @SuppressWarnings("unchecked")
   static class IterableEnumerator<T> implements Enumerator<T> {
     private final Iterable<? extends T> iterable;
@@ -481,7 +478,9 @@ public abstract class Linq4j {
     }
   }
 
-  /** Composite enumerable. */
+  /** Composite enumerable.
+   *
+   * @param <E> element type */
   static class CompositeEnumerable<E> extends AbstractEnumerable<E> {
     private final Enumerator<Enumerable<E>> enumerableEnumerator;
 
@@ -525,7 +524,9 @@ public abstract class Linq4j {
     }
   }
 
-  /** Iterable enumerable. */
+  /** Iterable enumerable.
+   *
+   * @param <T> element type */
   static class IterableEnumerable<T> extends AbstractEnumerable2<T> {
     protected final Iterable<T> iterable;
 
@@ -542,7 +543,9 @@ public abstract class Linq4j {
     }
   }
 
-  /** Collection enumerable. */
+  /** Collection enumerable.
+   *
+   * @param <T> element type */
   static class CollectionEnumerable<T> extends IterableEnumerable<T> {
     CollectionEnumerable(Collection<T> iterable) {
       super(iterable);
@@ -569,7 +572,9 @@ public abstract class Linq4j {
     }
   }
 
-  /** List enumerable. */
+  /** List enumerable.
+   *
+   * @param <T> element type */
   static class ListEnumerable<T> extends CollectionEnumerable<T> {
     ListEnumerable(List<T> list) {
       super(list);
@@ -608,7 +613,9 @@ public abstract class Linq4j {
     }
   }
 
-  /** Enumerator that returns one element. */
+  /** Enumerator that returns one element.
+   *
+   * @param <E> element type */
   private static class SingletonEnumerator<E> implements Enumerator<E> {
     final E e;
     int i = 0;
@@ -633,7 +640,9 @@ public abstract class Linq4j {
     }
   }
 
-  /** Enumerator that returns one null element. */
+  /** Enumerator that returns one null element.
+   *
+   * @param <E> element type */
   private static class SingletonNullEnumerator<E> implements Enumerator<E> {
     int i = 0;
 
@@ -653,7 +662,9 @@ public abstract class Linq4j {
     }
   }
 
-  /** Iterator that reads from an underlying {@link Enumerator}. */
+  /** Iterator that reads from an underlying {@link Enumerator}.
+   *
+   * @param <T> element type */
   private static class EnumeratorIterator<T>
       implements Iterator<T>, AutoCloseable {
     private final Enumerator<T> enumerator;
@@ -683,7 +694,9 @@ public abstract class Linq4j {
     }
   }
 
-  /** Enumerator optimized for random-access list. */
+  /** Enumerator optimized for random-access list.
+   *
+   * @param <V> element type */
   private static class ListEnumerator<V> implements Enumerator<V> {
     private final List<? extends V> list;
     int i = -1;
@@ -709,7 +722,9 @@ public abstract class Linq4j {
   }
 
   /** Enumerates over the cartesian product of the given lists, returning
-   * a list for each row. */
+   * a list for each row.
+   *
+   * @param <E> element type */
   private static class CartesianProductListEnumerator<E>
       extends CartesianProductEnumerator<E, List<E>> {
     CartesianProductListEnumerator(List<Enumerator<E>> enumerators) {

@@ -17,20 +17,16 @@
 package org.apache.calcite.test;
 
 import org.apache.calcite.sql.SqlCollation;
-import org.apache.calcite.sql.test.DefaultSqlTestFactory;
-import org.apache.calcite.sql.test.DelegatingSqlTestFactory;
 import org.apache.calcite.sql.test.SqlTestFactory;
 import org.apache.calcite.sql.test.SqlTester;
-import org.apache.calcite.sql.test.SqlTesterImpl;
+import org.apache.calcite.sql.test.SqlValidatorTester;
 import org.apache.calcite.sql.validate.SqlValidator;
 import org.apache.calcite.util.BarfingInvocationHandler;
+import org.apache.calcite.util.TestUtil;
 import org.apache.calcite.util.Util;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.PrintWriter;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
@@ -51,38 +47,16 @@ public class SqlTestGen {
   }
 
   private void genValidatorTest() {
-    FileOutputStream fos = null;
-    PrintWriter pw = null;
-    try {
-      File file = new File("validatorTest.sql");
-      fos = new FileOutputStream(file);
-      pw = new PrintWriter(fos);
+    final File file = new File("validatorTest.sql");
+    try (PrintWriter pw = Util.printWriter(file)) {
       Method[] methods = getJunitMethods(SqlValidatorSpooler.class);
       for (Method method : methods) {
         final SqlValidatorSpooler test = new SqlValidatorSpooler(pw);
         final Object result = method.invoke(test);
         assert result == null;
       }
-    } catch (IOException e) {
-      throw Util.newInternal(e);
-    } catch (IllegalAccessException e) {
-      throw Util.newInternal(e);
-    } catch (IllegalArgumentException e) {
-      throw Util.newInternal(e);
-    } catch (InvocationTargetException e) {
-      e.printStackTrace();
-      throw Util.newInternal(e);
-    } finally {
-      if (pw != null) {
-        pw.flush();
-      }
-      if (fos != null) {
-        try {
-          fos.close();
-        } catch (IOException e) {
-          throw Util.newInternal(e);
-        }
-      }
+    } catch (Exception e) {
+      throw TestUtil.rethrow(e);
     }
   }
 
@@ -90,7 +64,7 @@ public class SqlTestGen {
    * Returns a list of all of the Junit methods in a given class.
    */
   private static Method[] getJunitMethods(Class<SqlValidatorSpooler> clazz) {
-    List<Method> list = new ArrayList<Method>();
+    List<Method> list = new ArrayList<>();
     for (Method method : clazz.getMethods()) {
       if (method.getName().startsWith("test")
           && Modifier.isPublic(method.getModifiers())
@@ -100,7 +74,7 @@ public class SqlTestGen {
         list.add(method);
       }
     }
-    return list.toArray(new Method[list.size()]);
+    return list.toArray(new Method[0]);
   }
 
   //~ Inner Classes ----------------------------------------------------------
@@ -110,6 +84,13 @@ public class SqlTestGen {
    * tests.
    */
   private static class SqlValidatorSpooler extends SqlValidatorTest {
+    private static final SqlTestFactory SPOOLER_VALIDATOR = SqlTestFactory.INSTANCE.withValidator(
+        (opTab, catalogReader, typeFactory, conformance) ->
+            (SqlValidator) Proxy.newProxyInstance(
+                SqlValidatorSpooler.class.getClassLoader(),
+                new Class[]{SqlValidator.class},
+                new MyInvocationHandler()));
+
     private final PrintWriter pw;
 
     private SqlValidatorSpooler(PrintWriter pw) {
@@ -117,16 +98,7 @@ public class SqlTestGen {
     }
 
     public SqlTester getTester() {
-      final SqlTestFactory factory =
-          new DelegatingSqlTestFactory(DefaultSqlTestFactory.INSTANCE) {
-            @Override public SqlValidator getValidator(SqlTestFactory factory) {
-              return (SqlValidator) Proxy.newProxyInstance(
-                  SqlValidatorSpooler.class.getClassLoader(),
-                  new Class[]{SqlValidator.class},
-                  new MyInvocationHandler());
-            }
-          };
-      return new SqlTesterImpl(factory) {
+      return new SqlValidatorTester(SPOOLER_VALIDATOR) {
         public void assertExceptionIsThrown(
             String sql,
             String expectedMsgPattern) {
@@ -175,10 +147,7 @@ public class SqlTestGen {
         @Override public void checkIntervalConv(String sql, String expected) {
         }
 
-        @Override public void checkRewrite(
-            SqlValidator validator,
-            String query,
-            String expectedRewrite) {
+        @Override public void checkRewrite(String query, String expectedRewrite) {
         }
 
         @Override public void checkFieldOrigin(

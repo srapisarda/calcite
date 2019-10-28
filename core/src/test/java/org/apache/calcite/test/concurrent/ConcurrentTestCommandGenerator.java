@@ -78,8 +78,7 @@ public class ConcurrentTestCommandGenerator {
    * Maps Integer thread IDs to a TreeMap. The TreeMap vaules map an Integer
    * execution order to a {@link ConcurrentTestCommand}.
    */
-  private TreeMap<Integer, TreeMap<Integer, ConcurrentTestCommand>>
-  threadMap;
+  private TreeMap<Integer, TreeMap<Integer, ConcurrentTestCommand>> threadMap;
 
   /**
    * Maps Integer thread IDs to thread names.
@@ -348,11 +347,7 @@ public class ConcurrentTestCommandGenerator {
     assert order > 0;
 
     TreeMap<Integer, ConcurrentTestCommand> commandMap =
-        threadMap.get(threadId);
-    if (commandMap == null) {
-      commandMap = new TreeMap<Integer, ConcurrentTestCommand>();
-      threadMap.put(threadId, commandMap);
-    }
+        threadMap.computeIfAbsent(threadId, k -> new TreeMap<>());
 
     // check for duplicate order numbers
     assert !commandMap.containsKey(order);

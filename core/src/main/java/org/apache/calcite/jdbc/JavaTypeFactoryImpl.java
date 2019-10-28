@@ -22,33 +22,33 @@ import org.apache.calcite.linq4j.Ord;
 import org.apache.calcite.linq4j.tree.Primitive;
 import org.apache.calcite.linq4j.tree.Types;
 import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rel.type.RelDataTypeFieldImpl;
 import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.rel.type.RelRecordType;
+import org.apache.calcite.runtime.GeoFunctions;
 import org.apache.calcite.runtime.Unit;
 import org.apache.calcite.sql.type.BasicSqlType;
 import org.apache.calcite.sql.type.IntervalSqlType;
 import org.apache.calcite.sql.type.JavaToSqlTypeConversionRules;
 import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.sql.type.SqlTypeUtil;
 import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.Util;
-
-import com.google.common.base.Function;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
-import java.sql.Array;
 import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Implementation of {@link JavaTypeFactory}.
@@ -60,7 +60,7 @@ public class JavaTypeFactoryImpl
     extends SqlTypeFactoryImpl
     implements JavaTypeFactory {
   private final Map<List<Pair<Type, Boolean>>, SyntheticRecordType>
-  syntheticTypes = new HashMap<>();
+      syntheticTypes = new HashMap<>();
 
   public JavaTypeFactoryImpl() {
     this(RelDataTypeSystem.DEFAULT);
@@ -165,9 +165,6 @@ public class JavaTypeFactoryImpl
       JavaType javaType = (JavaType) type;
       return javaType.getJavaClass();
     }
-    if (type.isStruct() && type.getFieldCount() == 1) {
-      return getJavaClass(type.getFieldList().get(0).getType());
-    }
     if (type instanceof BasicSqlType || type instanceof IntervalSqlType) {
       switch (type.getSqlTypeName()) {
       case VARCHAR:
@@ -175,12 +172,25 @@ public class JavaTypeFactoryImpl
         return String.class;
       case DATE:
       case TIME:
+      case TIME_WITH_LOCAL_TIME_ZONE:
       case INTEGER:
+      case INTERVAL_YEAR:
       case INTERVAL_YEAR_MONTH:
+      case INTERVAL_MONTH:
         return type.isNullable() ? Integer.class : int.class;
       case TIMESTAMP:
+      case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
       case BIGINT:
-      case INTERVAL_DAY_TIME:
+      case INTERVAL_DAY:
+      case INTERVAL_DAY_HOUR:
+      case INTERVAL_DAY_MINUTE:
+      case INTERVAL_DAY_SECOND:
+      case INTERVAL_HOUR:
+      case INTERVAL_HOUR_MINUTE:
+      case INTERVAL_HOUR_SECOND:
+      case INTERVAL_MINUTE:
+      case INTERVAL_MINUTE_SECOND:
+      case INTERVAL_SECOND:
         return type.isNullable() ? Long.class : long.class;
       case SMALLINT:
         return type.isNullable() ? Short.class : short.class;
@@ -198,10 +208,14 @@ public class JavaTypeFactoryImpl
       case BINARY:
       case VARBINARY:
         return ByteString.class;
-      case ARRAY:
-        return Array.class;
+      case GEOMETRY:
+        return GeoFunctions.Geom.class;
+      case SYMBOL:
+        return Enum.class;
       case ANY:
         return Object.class;
+      case NULL:
+        return Void.class;
       }
     }
     switch (type.getSqlTypeName()) {
@@ -222,20 +236,36 @@ public class JavaTypeFactoryImpl
   }
 
   public RelDataType toSql(RelDataType type) {
+    return toSql(this, type);
+  }
+
+  /** Converts a type in Java format to a SQL-oriented type. */
+  public static RelDataType toSql(final RelDataTypeFactory typeFactory,
+      RelDataType type) {
     if (type instanceof RelRecordType) {
-      return createStructType(
-          Lists.transform(type.getFieldList(),
-              new Function<RelDataTypeField, RelDataType>() {
-                public RelDataType apply(RelDataTypeField a0) {
-                  return toSql(a0.getType());
-                }
-              }),
-          type.getFieldNames());
-    }
-    if (type instanceof JavaType) {
-      return createTypeWithNullability(
-          createSqlType(type.getSqlTypeName()),
+      return typeFactory.createTypeWithNullability(
+          typeFactory.createStructType(
+              type.getFieldList()
+                  .stream()
+                  .map(field -> toSql(typeFactory, field.getType()))
+                  .collect(Collectors.toList()),
+              type.getFieldNames()),
           type.isNullable());
+    } else if (type instanceof JavaType) {
+      SqlTypeName sqlTypeName = type.getSqlTypeName();
+      final RelDataType relDataType;
+      if (SqlTypeUtil.isArray(type)) {
+        final RelDataType elementType = type.getComponentType() == null
+                // type.getJavaClass() is collection with erased generic type
+                ? typeFactory.createSqlType(SqlTypeName.ANY)
+                // elementType returned by JavaType is also of JavaType,
+                // and needs conversion using typeFactory
+                : toSql(typeFactory, type.getComponentType());
+        relDataType = typeFactory.createArrayType(elementType, -1);
+      } else {
+        relDataType = typeFactory.createSqlType(sqlTypeName);
+      }
+      return typeFactory.createTypeWithNullability(relDataType, type.isNullable());
     }
     return type;
   }
@@ -341,15 +371,15 @@ public class JavaTypeFactoryImpl
     private final boolean nullable;
     private final int modifiers;
 
-    public RecordFieldImpl(
+    RecordFieldImpl(
         SyntheticRecordType syntheticType,
         String name,
         Type type,
         boolean nullable,
         int modifiers) {
-      this.syntheticType = Preconditions.checkNotNull(syntheticType);
-      this.name = Preconditions.checkNotNull(name);
-      this.type = Preconditions.checkNotNull(type);
+      this.syntheticType = Objects.requireNonNull(syntheticType);
+      this.name = Objects.requireNonNull(name);
+      this.type = Objects.requireNonNull(type);
       this.nullable = nullable;
       this.modifiers = modifiers;
       assert !(nullable && Primitive.is(type))

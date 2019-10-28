@@ -22,6 +22,7 @@ import org.apache.calcite.runtime.FlatLists;
 import org.apache.calcite.util.mapping.Mappings;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.UnmodifiableListIterator;
 
@@ -223,8 +224,12 @@ public class ImmutableIntList extends FlatLists.AbstractFlatList<Integer> {
     return -1;
   }
 
+  @Override public ImmutableIntList append(Integer e) {
+    return append((int) e);
+  }
+
   /** Returns a copy of this list with one element added. */
-  public ImmutableIntList add(int element) {
+  public ImmutableIntList append(int element) {
     if (ints.length == 0) {
       return of(element);
     }
@@ -259,6 +264,14 @@ public class ImmutableIntList extends FlatLists.AbstractFlatList<Integer> {
     return new ImmutableIntList(integers);
   }
 
+  /** Returns a copy of this list with all of the given integers added. */
+  public ImmutableIntList appendAll(Iterable<Integer> list) {
+    if (list instanceof Collection && ((Collection) list).isEmpty()) {
+      return this;
+    }
+    return ImmutableIntList.copyOf(Iterables.concat(this, list));
+  }
+
   /** Special sub-class of {@link ImmutableIntList} that is always
    * empty and has only one instance. */
   private static class EmptyImmutableIntList extends ImmutableIntList {
@@ -283,7 +296,9 @@ public class ImmutableIntList extends FlatLists.AbstractFlatList<Integer> {
   }
 
   /** Extension to {@link com.google.common.collect.UnmodifiableListIterator}
-   * that operates by index. */
+   * that operates by index.
+   *
+   * @param <E> element type */
   private abstract static class AbstractIndexedListIterator<E>
       extends UnmodifiableListIterator<E> {
     private final int size;

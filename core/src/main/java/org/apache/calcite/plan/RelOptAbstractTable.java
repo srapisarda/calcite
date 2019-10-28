@@ -17,13 +17,16 @@
 package org.apache.calcite.plan;
 
 import org.apache.calcite.linq4j.tree.Expression;
+import org.apache.calcite.prepare.RelOptTableImpl;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelDistribution;
 import org.apache.calcite.rel.RelDistributions;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.RelReferentialConstraint;
 import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
+import org.apache.calcite.schema.ColumnStrategy;
 import org.apache.calcite.util.ImmutableBitSet;
 
 import com.google.common.collect.ImmutableList;
@@ -94,6 +97,11 @@ public abstract class RelOptAbstractTable implements RelOptTable {
     return false;
   }
 
+  // Override to define foreign keys
+  public List<RelReferentialConstraint> getReferentialConstraints() {
+    return Collections.emptyList();
+  }
+
   public RelNode toRel(ToRelContext context) {
     return LogicalTableScan.create(context.getCluster(), this);
   }
@@ -105,6 +113,11 @@ public abstract class RelOptAbstractTable implements RelOptTable {
   public RelOptTable extend(List<RelDataTypeField> extendedFields) {
     throw new UnsupportedOperationException();
   }
+
+  public List<ColumnStrategy> getColumnStrategies() {
+    return RelOptTableImpl.columnStrategies(this);
+  }
+
 }
 
 // End RelOptAbstractTable.java

@@ -20,13 +20,10 @@ import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rex.RexLiteral;
 
-import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Ordering;
 
-import java.math.BigDecimal;
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
@@ -35,19 +32,19 @@ import java.util.List;
  * {@link org.apache.calcite.rel.core.Sort}.
  */
 public class SortNode extends AbstractSingleNode<Sort> {
-  public SortNode(Interpreter interpreter, Sort rel) {
-    super(interpreter, rel);
+  public SortNode(Compiler compiler, Sort rel) {
+    super(compiler, rel);
   }
 
   public void run() throws InterruptedException {
     final int offset =
         rel.offset == null
             ? 0
-            : ((BigDecimal) ((RexLiteral) rel.offset).getValue()).intValue();
+            : ((RexLiteral) rel.offset).getValueAs(Integer.class);
     final int fetch =
         rel.fetch == null
             ? -1
-            : ((BigDecimal) ((RexLiteral) rel.fetch).getValue()).intValue();
+            : ((RexLiteral) rel.fetch).getValueAs(Integer.class);
     // In pure limit mode. No sort required.
     Row row;
   loop:
@@ -69,11 +66,11 @@ public class SortNode extends AbstractSingleNode<Sort> {
       }
     } else {
       // Build a sorted collection.
-      final List<Row> list = Lists.newArrayList();
+      final List<Row> list = new ArrayList<>();
       while ((row = source.receive()) != null) {
         list.add(row);
       }
-      Collections.sort(list, comparator());
+      list.sort(comparator());
       final int end = fetch < 0 || offset + fetch > list.size()
           ? list.size()
           : offset + fetch;
@@ -90,11 +87,7 @@ public class SortNode extends AbstractSingleNode<Sort> {
     }
     return Ordering.compound(
         Iterables.transform(rel.getCollation().getFieldCollations(),
-            new Function<RelFieldCollation, Comparator<? super Row>>() {
-              public Comparator<? super Row> apply(RelFieldCollation input) {
-                return comparator(input);
-              }
-            }));
+            this::comparator));
   }
 
   private Comparator<Row> comparator(RelFieldCollation fieldCollation) {
@@ -102,20 +95,16 @@ public class SortNode extends AbstractSingleNode<Sort> {
     final int x = fieldCollation.getFieldIndex();
     switch (fieldCollation.direction) {
     case ASCENDING:
-      return new Comparator<Row>() {
-        public int compare(Row o1, Row o2) {
-          final Comparable c1 = (Comparable) o1.getValues()[x];
-          final Comparable c2 = (Comparable) o2.getValues()[x];
-          return RelFieldCollation.compare(c1, c2, nullComparison);
-        }
+      return (o1, o2) -> {
+        final Comparable c1 = (Comparable) o1.getValues()[x];
+        final Comparable c2 = (Comparable) o2.getValues()[x];
+        return RelFieldCollation.compare(c1, c2, nullComparison);
       };
     default:
-      return new Comparator<Row>() {
-        public int compare(Row o1, Row o2) {
-          final Comparable c1 = (Comparable) o1.getValues()[x];
-          final Comparable c2 = (Comparable) o2.getValues()[x];
-          return RelFieldCollation.compare(c2, c1, -nullComparison);
-        }
+      return (o1, o2) -> {
+        final Comparable c1 = (Comparable) o1.getValues()[x];
+        final Comparable c2 = (Comparable) o2.getValues()[x];
+        return RelFieldCollation.compare(c2, c1, -nullComparison);
       };
     }
   }

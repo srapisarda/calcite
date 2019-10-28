@@ -18,9 +18,8 @@ package org.apache.calcite.rel;
 
 import org.apache.calcite.sql.validate.SqlMonotonicity;
 
-import com.google.common.base.Preconditions;
-
 import java.util.Objects;
+import javax.annotation.Nonnull;
 
 /**
  * Definition of the ordering of one field of a {@link RelNode} whose
@@ -127,7 +126,7 @@ public class RelFieldCollation {
 
     /** Returns the null direction if not specified. Consistent with Oracle,
      * NULLS are sorted as if they were positive infinity. */
-    public NullDirection defaultNullDirection() {
+    public @Nonnull NullDirection defaultNullDirection() {
       switch (this) {
       case ASCENDING:
       case STRICTLY_ASCENDING:
@@ -137,6 +136,18 @@ public class RelFieldCollation {
         return NullDirection.FIRST;
       default:
         return NullDirection.UNSPECIFIED;
+      }
+    }
+
+    /** Returns whether this is {@link #DESCENDING} or
+     * {@link #STRICTLY_DESCENDING}. */
+    public boolean isDescending() {
+      switch (this) {
+      case DESCENDING:
+      case STRICTLY_DESCENDING:
+        return true;
+      default:
+        return false;
       }
     }
   }
@@ -197,8 +208,8 @@ public class RelFieldCollation {
       Direction direction,
       NullDirection nullDirection) {
     this.fieldIndex = fieldIndex;
-    this.direction = Preconditions.checkNotNull(direction);
-    this.nullDirection = Preconditions.checkNotNull(nullDirection);
+    this.direction = Objects.requireNonNull(direction);
+    this.nullDirection = Objects.requireNonNull(nullDirection);
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -206,11 +217,27 @@ public class RelFieldCollation {
   /**
    * Creates a copy of this RelFieldCollation against a different field.
    */
+  public RelFieldCollation withFieldIndex(int fieldIndex) {
+    return this.fieldIndex == fieldIndex ? this
+        : new RelFieldCollation(fieldIndex, direction, nullDirection);
+  }
+
+  @Deprecated // to be removed before 2.0
   public RelFieldCollation copy(int target) {
-    if (target == fieldIndex) {
-      return this;
-    }
-    return new RelFieldCollation(target, direction, nullDirection);
+    return withFieldIndex(target);
+  }
+
+  /** Creates a copy of this RelFieldCollation with a different direction. */
+  public RelFieldCollation withDirection(Direction direction) {
+    return this.direction == direction ? this
+        : new RelFieldCollation(fieldIndex, direction, nullDirection);
+  }
+
+  /** Creates a copy of this RelFieldCollation with a different null
+   * direction. */
+  public RelFieldCollation withNullDirection(NullDirection nullDirection) {
+    return this.nullDirection == nullDirection ? this
+        : new RelFieldCollation(fieldIndex, direction, nullDirection);
   }
 
   /**
@@ -218,7 +245,7 @@ public class RelFieldCollation {
    * {@code offset} to the right.
    */
   public RelFieldCollation shift(int offset) {
-    return copy(fieldIndex + offset);
+    return withFieldIndex(fieldIndex + offset);
   }
 
   @Override public boolean equals(Object o) {

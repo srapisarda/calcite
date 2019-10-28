@@ -27,11 +27,14 @@ import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.SingleRel;
 import org.apache.calcite.rel.metadata.RelMdUtil;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
+import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexLocalRef;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexProgram;
+import org.apache.calcite.rex.RexProgramBuilder;
 import org.apache.calcite.rex.RexShuttle;
-
+import org.apache.calcite.rex.RexUtil;
 import org.apache.calcite.util.Litmus;
 import org.apache.calcite.util.Util;
 
@@ -64,7 +67,7 @@ public abstract class Calc extends SingleRel {
     super(cluster, traits, child);
     this.rowType = program.getOutputRowType();
     this.program = program;
-    assert isValid(Litmus.THROW);
+    assert isValid(Litmus.THROW, null);
   }
 
   @Deprecated // to be removed before 2.0
@@ -110,7 +113,7 @@ public abstract class Calc extends SingleRel {
     return copy(traitSet, child, program);
   }
 
-  public boolean isValid(Litmus litmus) {
+  public boolean isValid(Litmus litmus, Context context) {
     if (!RelOptUtil.equal(
         "program's input type",
         program.getInputRowType(),
@@ -118,7 +121,7 @@ public abstract class Calc extends SingleRel {
         getInput().getRowType(), litmus)) {
       return litmus.fail(null);
     }
-    if (!program.isValid(litmus)) {
+    if (!program.isValid(litmus, context)) {
       return litmus.fail(null);
     }
     if (!program.isNormalized(litmus, getCluster().getRexBuilder())) {
@@ -168,12 +171,20 @@ public abstract class Calc extends SingleRel {
         && condition == oldCondition) {
       return this;
     }
-    return copy(traitSet, getInput(),
-        new RexProgram(program.getInputRowType(),
-            exprs,
+
+    final RexBuilder rexBuilder = getCluster().getRexBuilder();
+    final RelDataType rowType =
+        RexUtil.createStructType(
+            rexBuilder.getTypeFactory(),
             projects,
-            (RexLocalRef) condition,
-            program.getOutputRowType()));
+            this.rowType.getFieldNames(),
+            null);
+    final RexProgram newProgram =
+        RexProgramBuilder.create(
+            rexBuilder, program.getInputRowType(), exprs, projects,
+            condition, rowType, true, null)
+        .getProgram(false);
+    return copy(traitSet, getInput(), newProgram);
   }
 }
 

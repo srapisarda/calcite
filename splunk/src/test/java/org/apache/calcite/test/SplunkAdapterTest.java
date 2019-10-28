@@ -16,9 +16,9 @@
  */
 package org.apache.calcite.test;
 
-import org.apache.calcite.util.Util;
+import org.apache.calcite.config.CalciteSystemProperty;
+import org.apache.calcite.util.TestUtil;
 
-import com.google.common.base.Function;
 import com.google.common.collect.ImmutableSet;
 
 import org.junit.Ignore;
@@ -33,6 +33,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Properties;
 import java.util.Set;
+import java.util.function.Function;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.is;
@@ -46,16 +47,10 @@ public class SplunkAdapterTest {
   public static final String SPLUNK_USER = "admin";
   public static final String SPLUNK_PASSWORD = "changeme";
 
-  /** Whether to run Splunk tests. Disabled by default, because we do not expect
-   * Splunk to be installed and populated data set. To enable,
-   * specify {@code -Dcalcite.test.splunk} on the Java command line. */
-  public static final boolean ENABLED =
-      Util.getBooleanProperty("calcite.test.splunk");
-
   /** Whether this test is enabled. Tests are disabled unless we know that
    * Splunk is present and loaded with the requisite data. */
   private boolean enabled() {
-    return ENABLED;
+    return CalciteSystemProperty.TEST_SPLUNK.value();
   }
 
   private void loadDriverClass() {
@@ -117,70 +112,70 @@ public class SplunkAdapterTest {
   }
 
   static final String[] SQL_STRINGS = {
-    "select \"source\", \"sourcetype\"\n"
-        + "from \"splunk\".\"splunk\"",
+      "select \"source\", \"sourcetype\"\n"
+          + "from \"splunk\".\"splunk\"",
 
-    "select \"sourcetype\"\n"
-        + "from \"splunk\".\"splunk\"",
+      "select \"sourcetype\"\n"
+          + "from \"splunk\".\"splunk\"",
 
-    "select distinct \"sourcetype\"\n"
-        + "from \"splunk\".\"splunk\"",
+      "select distinct \"sourcetype\"\n"
+          + "from \"splunk\".\"splunk\"",
 
-    "select count(\"sourcetype\")\n"
-        + "from \"splunk\".\"splunk\"",
+      "select count(\"sourcetype\")\n"
+          + "from \"splunk\".\"splunk\"",
 
-    // gives wrong answer, not error. currently returns same as count.
-    "select count(distinct \"sourcetype\")\n"
-        + "from \"splunk\".\"splunk\"",
+      // gives wrong answer, not error. currently returns same as count.
+      "select count(distinct \"sourcetype\")\n"
+          + "from \"splunk\".\"splunk\"",
 
-    "select \"sourcetype\", count(\"source\")\n"
-        + "from \"splunk\".\"splunk\"\n"
-        + "group by \"sourcetype\"",
+      "select \"sourcetype\", count(\"source\")\n"
+          + "from \"splunk\".\"splunk\"\n"
+          + "group by \"sourcetype\"",
 
-    "select \"sourcetype\", count(\"source\") as c\n"
-        + "from \"splunk\".\"splunk\"\n"
-        + "group by \"sourcetype\"\n"
-        + "order by c desc\n",
+      "select \"sourcetype\", count(\"source\") as c\n"
+          + "from \"splunk\".\"splunk\"\n"
+          + "group by \"sourcetype\"\n"
+          + "order by c desc\n",
 
-    // group + order
-    "select s.\"product_id\", count(\"source\") as c\n"
-        + "from \"splunk\".\"splunk\" as s\n"
-        + "where s.\"sourcetype\" = 'access_combined_wcookie'\n"
-        + "group by s.\"product_id\"\n"
-        + "order by c desc\n",
+      // group + order
+      "select s.\"product_id\", count(\"source\") as c\n"
+          + "from \"splunk\".\"splunk\" as s\n"
+          + "where s.\"sourcetype\" = 'access_combined_wcookie'\n"
+          + "group by s.\"product_id\"\n"
+          + "order by c desc\n",
 
-    // non-advertised field
-    "select s.\"sourcetype\", s.\"action\" from \"splunk\".\"splunk\" as s",
+      // non-advertised field
+      "select s.\"sourcetype\", s.\"action\" from \"splunk\".\"splunk\" as s",
 
-    "select s.\"source\", s.\"product_id\", s.\"product_name\", s.\"method\"\n"
-        + "from \"splunk\".\"splunk\" as s\n"
-        + "where s.\"sourcetype\" = 'access_combined_wcookie'\n",
+      "select s.\"source\", s.\"product_id\", s.\"product_name\", s.\"method\"\n"
+          + "from \"splunk\".\"splunk\" as s\n"
+          + "where s.\"sourcetype\" = 'access_combined_wcookie'\n",
 
-    "select p.\"product_name\", s.\"action\"\n"
-        + "from \"splunk\".\"splunk\" as s\n"
-        + "  join \"mysql\".\"products\" as p\n"
-        + "on s.\"product_id\" = p.\"product_id\"",
+      "select p.\"product_name\", s.\"action\"\n"
+          + "from \"splunk\".\"splunk\" as s\n"
+          + "  join \"mysql\".\"products\" as p\n"
+          + "on s.\"product_id\" = p.\"product_id\"",
 
-    "select s.\"source\", s.\"product_id\", p.\"product_name\", p.\"price\"\n"
-        + "from \"splunk\".\"splunk\" as s\n"
-        + "    join \"mysql\".\"products\" as p\n"
-        + "    on s.\"product_id\" = p.\"product_id\"\n"
-        + "where s.\"sourcetype\" = 'access_combined_wcookie'\n",
+      "select s.\"source\", s.\"product_id\", p.\"product_name\", p.\"price\"\n"
+          + "from \"splunk\".\"splunk\" as s\n"
+          + "    join \"mysql\".\"products\" as p\n"
+          + "    on s.\"product_id\" = p.\"product_id\"\n"
+          + "where s.\"sourcetype\" = 'access_combined_wcookie'\n",
   };
 
   static final String[] ERROR_SQL_STRINGS = {
-    // gives error in SplunkPushDownRule
-    "select count(*) from \"splunk\".\"splunk\"",
+      // gives error in SplunkPushDownRule
+      "select count(*) from \"splunk\".\"splunk\"",
 
-    // gives no rows; suspect off-by-one because no base fields are
-    // referenced
-    "select s.\"product_id\", s.\"product_name\", s.\"method\"\n"
-        + "from \"splunk\".\"splunk\" as s\n"
-        + "where s.\"sourcetype\" = 'access_combined_wcookie'\n",
+      // gives no rows; suspect off-by-one because no base fields are
+      // referenced
+      "select s.\"product_id\", s.\"product_name\", s.\"method\"\n"
+          + "from \"splunk\".\"splunk\" as s\n"
+          + "where s.\"sourcetype\" = 'access_combined_wcookie'\n",
 
-    // horrible error if you access a field that doesn't exist
-    "select s.\"sourcetype\", s.\"access\"\n"
-        + "from \"splunk\".\"splunk\" as s\n",
+      // horrible error if you access a field that doesn't exist
+      "select s.\"sourcetype\", s.\"access\"\n"
+          + "from \"splunk\".\"splunk\" as s\n",
   };
 
   // Fields:
@@ -192,21 +187,18 @@ public class SplunkAdapterTest {
    * Reads from a table.
    */
   @Test public void testSelect() throws SQLException {
-    checkSql(
-        "select \"source\", \"sourcetype\"\n"
-            + "from \"splunk\".\"splunk\"",
-        new Function<ResultSet, Void>() {
-          public Void apply(ResultSet a0) {
-            try {
-              if (!(a0.next() && a0.next() && a0.next())) {
-                throw new AssertionError("expected at least 3 rows");
-              }
-              return null;
-            } catch (SQLException e) {
-              throw new RuntimeException(e);
-            }
-          }
-        });
+    final String sql = "select \"source\", \"sourcetype\"\n"
+        + "from \"splunk\".\"splunk\"";
+    checkSql(sql, resultSet -> {
+      try {
+        if (!(resultSet.next() && resultSet.next() && resultSet.next())) {
+          throw new AssertionError("expected at least 3 rows");
+        }
+        return null;
+      } catch (SQLException e) {
+        throw TestUtil.rethrow(e);
+      }
+    });
   }
 
   @Test public void testSelectDistinct() throws SQLException {
@@ -220,16 +212,14 @@ public class SplunkAdapterTest {
 
   private static Function<ResultSet, Void> expect(final String... lines) {
     final Collection<String> expected = ImmutableSet.copyOf(lines);
-    return new Function<ResultSet, Void>() {
-      public Void apply(ResultSet a0) {
-        try {
-          Collection<String> actual =
-              CalciteAssert.toStringList(a0, new HashSet<String>());
-          assertThat(actual, equalTo(expected));
-          return null;
-        } catch (SQLException e) {
-          throw new RuntimeException(e);
-        }
+    return a0 -> {
+      try {
+        Collection<String> actual =
+            CalciteAssert.toStringList(a0, new HashSet<>());
+        assertThat(actual, equalTo(expected));
+        return null;
+      } catch (SQLException e) {
+        throw TestUtil.rethrow(e);
       }
     };
   }
@@ -239,19 +229,16 @@ public class SplunkAdapterTest {
   @Test public void testSelectNonBuiltInColumn() throws SQLException {
     checkSql(
         "select \"status\"\n"
-        + "from \"splunk\".\"splunk\"",
-        new Function<ResultSet, Void>() {
-          public Void apply(ResultSet a0) {
-            final Set<String> actual = new HashSet<>();
-            try {
-              while (a0.next()) {
-                actual.add(a0.getString(1));
-              }
-              assertThat(actual.contains("404"), is(true));
-              return null;
-            } catch (SQLException e) {
-              throw new RuntimeException(e);
+        + "from \"splunk\".\"splunk\"", a0 -> {
+          final Set<String> actual = new HashSet<>();
+          try {
+            while (a0.next()) {
+              actual.add(a0.getString(1));
             }
+            assertThat(actual.contains("404"), is(true));
+            return null;
+          } catch (SQLException e) {
+            throw TestUtil.rethrow(e);
           }
         });
   }

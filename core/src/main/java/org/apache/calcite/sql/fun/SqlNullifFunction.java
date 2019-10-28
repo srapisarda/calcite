@@ -42,9 +42,8 @@ public class SqlNullifFunction extends SqlFunction {
     // rewriteCall to convert NULLIF into CASE early.  However,
     // validator rewrite can optionally be disabled, in which case these
     // strategies are used.
-    super(
-        "NULLIF",
-        SqlKind.OTHER_FUNCTION,
+    super("NULLIF",
+        SqlKind.NULLIF,
         ReturnTypes.ARG0_FORCE_NULLABLE,
         null,
         OperandTypes.COMPARABLE_UNORDERED_COMPARABLE_UNORDERED,
@@ -68,9 +67,8 @@ public class SqlNullifFunction extends SqlFunction {
     SqlNodeList thenList = new SqlNodeList(pos);
     whenList.add(operands.get(1));
     thenList.add(SqlLiteral.createNull(SqlParserPos.ZERO));
-    return SqlCase.createSwitched(
-        pos, operands.get(0), whenList, thenList, operands.get(0).clone(
-        operands.get(0).getParserPosition()));
+    return SqlCase.createSwitched(pos, operands.get(0), whenList, thenList,
+        SqlNode.clone(operands.get(0)));
   }
 }
 

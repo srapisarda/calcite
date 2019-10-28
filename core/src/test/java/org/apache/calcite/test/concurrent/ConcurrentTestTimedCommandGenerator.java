@@ -79,13 +79,9 @@ public class ConcurrentTestTimedCommandGenerator
       }
     }
 
-    return new Iterable<ConcurrentTestCommand>() {
-      public Iterator<ConcurrentTestCommand> iterator() {
-        return new TimedIterator<ConcurrentTestCommand>(
-            getCommands(threadId),
-            endTimeMillis);
-      }
-    };
+    return () -> new TimedIterator<ConcurrentTestCommand>(
+        getCommands(threadId),
+        endTimeMillis);
   }
 
   /**
@@ -104,6 +100,8 @@ public class ConcurrentTestTimedCommandGenerator
   /**
    * TimedIterator is an Iterator that repeats a given collection's elements
    * until <code>System.currentTimeMillis() &ge; endTimeMillis</code>.
+   *
+   * @param <E> element type
    */
   private class TimedIterator<E> implements Iterator<E> {
     private final List<E> commands;

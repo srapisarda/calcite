@@ -17,22 +17,27 @@
 package org.apache.calcite.test;
 
 import org.apache.calcite.util.ReflectUtil;
+import org.apache.calcite.util.TestUtil;
+import org.apache.calcite.util.Util;
 
-import org.incava.util.diff.Diff;
-import org.incava.util.diff.Difference;
+import org.incava.diff.Diff;
+import org.incava.diff.Difference;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.FileReader;
 import java.io.IOException;
 import java.io.LineNumberReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.StringWriter;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -71,8 +76,6 @@ public abstract class DiffTestCase {
   private String ignorePatterns;
   Matcher compiledIgnoreMatcher;
 
-  int gcInterval;
-
   /**
    * Whether to give verbose message if diff fails.
    */
@@ -92,7 +95,6 @@ public abstract class DiffTestCase {
     ignorePatterns = "";
     compiledIgnoreMatcher = null;
     compiledDiffMatcher = null;
-    gcInterval = 0;
     String verboseVal =
         System.getProperty(DiffTestCase.class.getName() + ".verbose");
     if (verboseVal != null) {
@@ -109,7 +111,6 @@ public abstract class DiffTestCase {
     ignorePatterns = "";
     compiledIgnoreMatcher = null;
     compiledDiffMatcher = null;
-    gcInterval = 0;
   }
 
   @After
@@ -142,7 +143,8 @@ public abstract class DiffTestCase {
         new File(
             testClassDir,
             testCaseName);
-    return new OutputStreamWriter(openTestLogOutputStream(testLogFile));
+    return new OutputStreamWriter(
+        openTestLogOutputStream(testLogFile), StandardCharsets.UTF_8);
   }
 
   /**
@@ -206,19 +208,9 @@ public abstract class DiffTestCase {
    */
   protected void diffFile(File logFile, File refFile) throws IOException {
     int n = 0;
-    FileReader logReader = null;
-    FileReader refReader = null;
+    BufferedReader logReader = null;
+    BufferedReader refReader = null;
     try {
-      if (compiledIgnoreMatcher != null) {
-        if (gcInterval != 0) {
-          n++;
-          if (n == gcInterval) {
-            n = 0;
-            System.gc();
-          }
-        }
-      }
-
       // NOTE: Use of diff.mask is deprecated, use diff_mask.
       String diffMask = System.getProperty("diff.mask", null);
       if (diffMask != null) {
@@ -230,8 +222,8 @@ public abstract class DiffTestCase {
         addDiffMask(diffMask);
       }
 
-      logReader = new FileReader(logFile);
-      refReader = new FileReader(refFile);
+      logReader = Util.reader(logFile);
+      refReader = Util.reader(refFile);
       LineNumberReader logLineReader = new LineNumberReader(logReader);
       LineNumberReader refLineReader = new LineNumberReader(refReader);
       for (;;) {
@@ -277,16 +269,6 @@ public abstract class DiffTestCase {
 
     // no diffs detected, so delete redundant .log file
     logFile.delete();
-  }
-
-  /**
-   * set the number of lines for garbage collection.
-   *
-   * @param n an integer, the number of line for garbage collection, 0 means
-   *          no garbage collection.
-   */
-  protected void setGC(int n) {
-    gcInterval = n;
   }
 
   /**
@@ -404,8 +386,8 @@ public abstract class DiffTestCase {
    * Returns a string containing the difference between the two sets of lines.
    */
   public static String diffLines(List<String> lines1, List<String> lines2) {
-    Diff differencer = new Diff(lines1, lines2);
-    List<Difference> differences = differencer.diff();
+    final Diff<String> differencer = new Diff<>(lines1, lines2);
+    final List<Difference> differences = differencer.execute();
     StringWriter sw = new StringWriter();
     int offset = 0;
     for (Difference d : differences) {
@@ -471,9 +453,8 @@ public abstract class DiffTestCase {
    * @return List of lines
    */
   private static List<String> fileLines(File file) {
-    List<String> lines = new ArrayList<String>();
-    try {
-      LineNumberReader r = new LineNumberReader(new FileReader(file));
+    List<String> lines = new ArrayList<>();
+    try (LineNumberReader r = new LineNumberReader(Util.reader(file))) {
       String line;
       while ((line = r.readLine()) != null) {
         lines.add(line);
@@ -481,7 +462,7 @@ public abstract class DiffTestCase {
       return lines;
     } catch (IOException e) {
       e.printStackTrace();
-      throw new RuntimeException(e);
+      throw TestUtil.rethrow(e);
     }
   }
 
@@ -492,17 +473,16 @@ public abstract class DiffTestCase {
    * @return Contents of the file
    */
   protected static String fileContents(File file) {
-    try {
-      char[] buf = new char[2048];
-      final FileReader reader = new FileReader(file);
+    byte[] buf = new byte[2048];
+    try (FileInputStream reader = new FileInputStream(file)) {
       int readCount;
-      final StringWriter writer = new StringWriter();
+      final ByteArrayOutputStream writer = new ByteArrayOutputStream();
       while ((readCount = reader.read(buf)) >= 0) {
         writer.write(buf, 0, readCount);
       }
-      return writer.toString();
+      return writer.toString(StandardCharsets.UTF_8.name());
     } catch (IOException e) {
-      throw new RuntimeException(e);
+      throw TestUtil.rethrow(e);
     }
   }
 

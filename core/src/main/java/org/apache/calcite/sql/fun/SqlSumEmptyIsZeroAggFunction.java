@@ -25,6 +25,7 @@ import org.apache.calcite.sql.SqlSplittableAggFunction;
 import org.apache.calcite.sql.type.OperandTypes;
 import org.apache.calcite.sql.type.ReturnTypes;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.util.Optionality;
 
 import com.google.common.collect.ImmutableList;
 
@@ -48,17 +49,20 @@ public class SqlSumEmptyIsZeroAggFunction extends SqlAggFunction {
         OperandTypes.NUMERIC,
         SqlFunctionCategory.NUMERIC,
         false,
-        false);
+        false,
+        Optionality.FORBIDDEN);
   }
 
   //~ Methods ----------------------------------------------------------------
 
+  @SuppressWarnings("deprecation")
   public List<RelDataType> getParameterTypes(RelDataTypeFactory typeFactory) {
     return ImmutableList.of(
         typeFactory.createTypeWithNullability(
             typeFactory.createSqlType(SqlTypeName.ANY), true));
   }
 
+  @SuppressWarnings("deprecation")
   public RelDataType getReturnType(RelDataTypeFactory typeFactory) {
     return typeFactory.createTypeWithNullability(
         typeFactory.createSqlType(SqlTypeName.ANY), true);
@@ -66,7 +70,7 @@ public class SqlSumEmptyIsZeroAggFunction extends SqlAggFunction {
 
   @Override public <T> T unwrap(Class<T> clazz) {
     if (clazz == SqlSplittableAggFunction.class) {
-      return clazz.cast(SqlSplittableAggFunction.SumSplitter.INSTANCE);
+      return clazz.cast(SqlSplittableAggFunction.Sum0Splitter.INSTANCE);
     }
     return super.unwrap(clazz);
   }

@@ -66,9 +66,9 @@ public interface PhysType {
   /** Generates a reference to a given field in an expression.
    *
    * <p>For example given {@code expression=employee} and {@code field=2},
-   * generates</p>
+   * generates
    *
-   * <pre>{@code employee.deptno}</pre>
+   * <blockquote><pre>{@code employee.deptno}</pre></blockquote>
    *
    * @param expression Expression
    * @param field Ordinal of field
@@ -79,12 +79,12 @@ public interface PhysType {
   /** Generates a reference to a given field in an expression.
    *
    * <p>This method optimizes for the target storage type (i.e. avoids
-   * casts).</p>
+   * casts).
    *
    * <p>For example given {@code expression=employee} and {@code field=2},
-   * generates</p>
+   * generates
    *
-   * <pre>{@code employee.deptno}</pre>
+   * <blockquote><pre>{@code employee.deptno}</pre></blockquote>
    *
    * @param expression Expression
    * @param field Ordinal of field
@@ -99,15 +99,15 @@ public interface PhysType {
    * {@link Object#equals(Object)} per that interface) and also implements
    * {@link Comparable}.
    *
-   * <p>For example:</p>
+   * <p>For example:
    *
-   * <pre>{@code
-   * new Function1<Employee, Object[]> {
+   * <blockquote><pre>
+   * new Function1&lt;Employee, Object[]&gt; {
    *    public Object[] apply(Employee v1) {
-   *        return FlatLists.of(v1.<fieldN>, v1.<fieldM>);
+   *        return FlatLists.of(v1.&lt;fieldN&gt;, v1.&lt;fieldM&gt;);
    *    }
    * }
-   * }</pre>
+   * }</pre></blockquote>
    */
   Expression generateAccessor(List<Integer> fields);
 
@@ -140,8 +140,9 @@ public interface PhysType {
       List<Integer> usedFields,
       JavaRowFormat targetFormat);
 
-  /** Generates a selector for the given fields from an expression. */
-  Expression selector(
+  /** Generates a selector for the given fields from an expression.
+   * Only used by EnumerableWindow. */
+  Pair<Type, List<Expression>> selector(
       ParameterExpression parameter,
       List<Integer> fields,
       JavaRowFormat targetFormat);
@@ -197,8 +198,19 @@ public interface PhysType {
   PhysType makeNullable(boolean nullable);
 
   /** Converts an enumerable of this physical type to an enumerable that uses a
-   * given physical type for its rows. */
+   * given physical type for its rows.
+   *
+   * @deprecated Use {@link #convertTo(Expression, JavaRowFormat)}.
+   * The use of PhysType as a second parameter is misleading since only the row
+   * format of the expression is affected by the conversion. Moreover it requires
+   * to have at hand a PhysType object which is not really necessary for achieving
+   * the desired result. */
+  @Deprecated // to be removed before 2.0
   Expression convertTo(Expression expression, PhysType targetPhysType);
+
+  /** Converts an enumerable of this physical type to an enumerable that uses
+   * the <code>targetFormat</code> for representing its rows. */
+  Expression convertTo(Expression expression, JavaRowFormat targetFormat);
 }
 
 // End PhysType.java

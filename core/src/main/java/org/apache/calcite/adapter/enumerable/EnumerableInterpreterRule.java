@@ -19,6 +19,10 @@ package org.apache.calcite.adapter.enumerable;
 import org.apache.calcite.interpreter.BindableConvention;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.convert.ConverterRule;
+import org.apache.calcite.rel.core.RelFactories;
+import org.apache.calcite.tools.RelBuilderFactory;
+
+import java.util.function.Predicate;
 
 /**
  * Planner rule that converts {@link org.apache.calcite.interpreter.BindableRel}
@@ -27,11 +31,17 @@ import org.apache.calcite.rel.convert.ConverterRule;
  */
 public class EnumerableInterpreterRule extends ConverterRule {
   public static final EnumerableInterpreterRule INSTANCE =
-      new EnumerableInterpreterRule();
+      new EnumerableInterpreterRule(RelFactories.LOGICAL_BUILDER);
 
-  private EnumerableInterpreterRule() {
-    super(RelNode.class, BindableConvention.INSTANCE,
-        EnumerableConvention.INSTANCE, "EnumerableInterpreterRule");
+  /**
+   * Creates an EnumerableInterpreterRule.
+   *
+   * @param relBuilderFactory Builder for relational expressions
+   */
+  public EnumerableInterpreterRule(RelBuilderFactory relBuilderFactory) {
+    super(RelNode.class, (Predicate<RelNode>) r -> true,
+        BindableConvention.INSTANCE, EnumerableConvention.INSTANCE,
+        relBuilderFactory, "EnumerableInterpreterRule");
   }
 
   //~ Methods ----------------------------------------------------------------

@@ -17,39 +17,19 @@
 package org.apache.calcite.sql.validate;
 
 import org.apache.calcite.sql.SqlCall;
-import org.apache.calcite.sql.SqlFunction;
-import org.apache.calcite.sql.SqlFunctionCategory;
-import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlNode;
-import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.SqlOperatorTable;
-import org.apache.calcite.sql.SqlSyntax;
-import org.apache.calcite.sql.util.SqlBasicVisitor;
 import org.apache.calcite.util.Util;
 
-import com.google.common.collect.Lists;
-
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import javax.annotation.Nonnull;
 
-/**
- * Visitor which looks for an aggregate function inside a tree of
- * {@link SqlNode} objects.
- */
-class AggFinder extends SqlBasicVisitor<Void> {
-  //~ Instance fields --------------------------------------------------------
-
-  private final SqlOperatorTable opTab;
-
-  /** Whether to find windowed aggregates. */
-  private final boolean over;
-
-  /** Whether to find regular (non-windowed) aggregates. */
-  private boolean aggregate;
-
-  private final AggFinder delegate;
-
-  //~ Constructors -----------------------------------------------------------
-
+/** Visitor that looks for an aggregate function inside a tree of
+ * {@link SqlNode} objects and throws {@link Util.FoundOne} when it finds
+ * one. */
+class AggFinder extends AggVisitor {
   /**
    * Creates an AggFinder.
    *
@@ -57,15 +37,13 @@ class AggFinder extends SqlBasicVisitor<Void> {
    * @param over Whether to find windowed function calls {@code agg(x) OVER
    *             windowSpec}
    * @param aggregate Whether to find non-windowed aggregate calls
+   * @param group Whether to find group functions (e.g. {@code TUMBLE})
    * @param delegate Finder to which to delegate when processing the arguments
-   *                  to a non-windowed aggregate
+   * @param nameMatcher Whether to match the agg function case-sensitively
    */
   AggFinder(SqlOperatorTable opTab, boolean over, boolean aggregate,
-      AggFinder delegate) {
-    this.opTab = opTab;
-    this.over = over;
-    this.aggregate = aggregate;
-    this.delegate = delegate;
+      boolean group, AggFinder delegate, SqlNameMatcher nameMatcher) {
+    super(opTab, over, aggregate, group, delegate, nameMatcher);
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -76,17 +54,17 @@ class AggFinder extends SqlBasicVisitor<Void> {
    * @param node Parse tree to search
    * @return First aggregate function in parse tree, or null if not found
    */
-  public SqlNode findAgg(SqlNode node) {
+  public SqlCall findAgg(SqlNode node) {
     try {
       node.accept(this);
       return null;
     } catch (Util.FoundOne e) {
       Util.swallow(e, null);
-      return (SqlNode) e.getNode();
+      return (SqlCall) e.getNode();
     }
   }
 
-  public SqlNode findAgg(List<SqlNode> nodes) {
+  public SqlCall findAgg(List<SqlNode> nodes) {
     try {
       for (SqlNode node : nodes) {
         node.accept(this);
@@ -94,50 +72,42 @@ class AggFinder extends SqlBasicVisitor<Void> {
       return null;
     } catch (Util.FoundOne e) {
       Util.swallow(e, null);
-      return (SqlNode) e.getNode();
+      return (SqlCall) e.getNode();
     }
   }
 
-  public Void visit(SqlCall call) {
-    final SqlOperator operator = call.getOperator();
-    // If nested aggregates disallowed or found an aggregate at invalid level
-    if (operator.isAggregator()) {
-      if (delegate != null) {
-        return call.getOperator().acceptCall(delegate, call);
-      }
-      if (aggregate) {
-        throw new Util.FoundOne(call);
-      }
+  protected Void found(SqlCall call) {
+    throw new Util.FoundOne(call);
+  }
+
+  /** Creates a copy of this finder that has the same parameters as this,
+   * then returns the list of all aggregates found. */
+  Iterable<SqlCall> findAll(Iterable<SqlNode> nodes) {
+    final AggIterable aggIterable =
+        new AggIterable(opTab, over, aggregate, group, delegate, nameMatcher);
+    for (SqlNode node : nodes) {
+      node.accept(aggIterable);
     }
-    // User-defined function may not be resolved yet.
-    if (operator instanceof SqlFunction
-        && ((SqlFunction) operator).getFunctionType()
-        == SqlFunctionCategory.USER_DEFINED_FUNCTION) {
-      final List<SqlOperator> list = Lists.newArrayList();
-      opTab.lookupOperatorOverloads(((SqlFunction) operator).getSqlIdentifier(),
-          SqlFunctionCategory.USER_DEFINED_FUNCTION, SqlSyntax.FUNCTION, list);
-      for (SqlOperator sqlOperator : list) {
-        if (sqlOperator.isAggregator()) {
-          // If nested aggregates disallowed or found aggregate at invalid level
-          if (aggregate) {
-            throw new Util.FoundOne(call);
-          }
-        }
-      }
+    return aggIterable.calls;
+  }
+
+  /** Iterates over all aggregates. */
+  static class AggIterable extends AggVisitor implements Iterable<SqlCall> {
+    private final List<SqlCall> calls = new ArrayList<>();
+
+    AggIterable(SqlOperatorTable opTab, boolean over, boolean aggregate,
+        boolean group, AggFinder delegate, SqlNameMatcher nameMatcher) {
+      super(opTab, over, aggregate, group, delegate, nameMatcher);
     }
-    if (call.isA(SqlKind.QUERY)) {
-      // don't traverse into queries
+
+    @Override protected Void found(SqlCall call) {
+      calls.add(call);
       return null;
     }
-    if (call.getKind() == SqlKind.OVER) {
-      if (over) {
-        throw new Util.FoundOne(call);
-      } else {
-        // an aggregate function over a window is not an aggregate!
-        return null;
-      }
+
+    @Nonnull public Iterator<SqlCall> iterator() {
+      return calls.iterator();
     }
-    return super.visit(call);
   }
 }
 

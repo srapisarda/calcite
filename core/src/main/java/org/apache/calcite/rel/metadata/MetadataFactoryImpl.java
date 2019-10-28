@@ -18,8 +18,8 @@ package org.apache.calcite.rel.metadata;
 
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.util.Pair;
+import org.apache.calcite.util.Util;
 
-import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -36,12 +36,7 @@ import java.util.concurrent.ExecutionException;
  */
 public class MetadataFactoryImpl implements MetadataFactory {
   @SuppressWarnings("unchecked")
-  public static final UnboundMetadata<Metadata> DUMMY =
-      new UnboundMetadata<Metadata>() {
-        public Metadata bind(RelNode rel, RelMetadataQuery mq) {
-          return null;
-        }
-      };
+  public static final UnboundMetadata<Metadata> DUMMY = (rel, mq) -> null;
 
   private final LoadingCache<
       Pair<Class<RelNode>, Class<Metadata>>, UnboundMetadata<Metadata>> cache;
@@ -50,18 +45,14 @@ public class MetadataFactoryImpl implements MetadataFactory {
     this.cache = CacheBuilder.newBuilder().build(loader(provider));
   }
 
-  static CacheLoader<Pair<Class<RelNode>, Class<Metadata>>,
+  private static CacheLoader<Pair<Class<RelNode>, Class<Metadata>>,
       UnboundMetadata<Metadata>> loader(final RelMetadataProvider provider) {
-    return new CacheLoader<Pair<Class<RelNode>, Class<Metadata>>,
-        UnboundMetadata<Metadata>>() {
-      @Override public UnboundMetadata<Metadata> load(
-          Pair<Class<RelNode>, Class<Metadata>> key) throws Exception {
-        final UnboundMetadata<Metadata> function =
-            provider.apply(key.left, key.right);
-        // Return DUMMY, not null, so the cache knows to not ask again.
-        return function != null ? function : DUMMY;
-      }
-    };
+    return CacheLoader.from(key -> {
+      final UnboundMetadata<Metadata> function =
+          provider.apply(key.left, key.right);
+      // Return DUMMY, not null, so the cache knows to not ask again.
+      return function != null ? function : DUMMY;
+    });
   }
 
   public <M extends Metadata> M query(RelNode rel, RelMetadataQuery mq,
@@ -73,7 +64,8 @@ public class MetadataFactoryImpl implements MetadataFactory {
       final Metadata apply = cache.get(key).bind(rel, mq);
       return metadataClazz.cast(apply);
     } catch (UncheckedExecutionException | ExecutionException e) {
-      throw Throwables.propagate(e.getCause());
+      Util.throwIfUnchecked(e.getCause());
+      throw new RuntimeException(e.getCause());
     }
   }
 }

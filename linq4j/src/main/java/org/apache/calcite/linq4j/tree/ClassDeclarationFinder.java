@@ -24,30 +24,24 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Entry point for optimizers that factor ou deterministic expressions to
+ * Entry point for optimizers that factor out deterministic expressions to
  * final static fields.
  * Instances of this class should not be reused, so new visitor should be
  * created for optimizing a new expression tree.
  */
-public class ClassDeclarationFinder extends Visitor {
+public class ClassDeclarationFinder extends Shuttle {
   protected final ClassDeclarationFinder parent;
 
   /**
    * The list of new final static fields to be added to the current class.
    */
-  protected final List<MemberDeclaration> addedDeclarations =
-      new ArrayList<MemberDeclaration>();
+  protected final List<MemberDeclaration> addedDeclarations = new ArrayList<>();
 
-  private final Function1<ClassDeclarationFinder, ClassDeclarationFinder>
-  childFactory;
+  private final Function1<ClassDeclarationFinder, ClassDeclarationFinder> childFactory;
 
   private static final Function1<ClassDeclarationFinder,
       ClassDeclarationFinder> DEFAULT_CHILD_FACTORY =
-      new Function1<ClassDeclarationFinder, ClassDeclarationFinder>() {
-      public ClassDeclarationFinder apply(ClassDeclarationFinder a0) {
-        return new DeterministicCodeOptimizer(a0);
-      }
-    };
+      DeterministicCodeOptimizer::new;
 
   /**
    * Creates visitor that uses default optimizer.
@@ -90,25 +84,17 @@ public class ClassDeclarationFinder extends Visitor {
    * @param optimizingClass class that implements optimizations
    * @return factory that creates instances of given classes
    */
-  private static Function1<ClassDeclarationFinder, ClassDeclarationFinder>
-  newChildCreator(Class<? extends ClassDeclarationFinder> optimizingClass) {
+  private static Function1<ClassDeclarationFinder, ClassDeclarationFinder> newChildCreator(
+      Class<? extends ClassDeclarationFinder> optimizingClass) {
     try {
       final Constructor<? extends ClassDeclarationFinder> constructor =
           optimizingClass.getConstructor(ClassDeclarationFinder.class);
-      return new Function1<ClassDeclarationFinder, ClassDeclarationFinder>() {
-        public ClassDeclarationFinder apply(ClassDeclarationFinder a0) {
-          try {
-            return constructor.newInstance(a0);
-          } catch (InstantiationException e) {
-            throw new IllegalStateException(
-                "Unable to create optimizer via " + constructor, e);
-          } catch (IllegalAccessException e) {
-            throw new IllegalStateException(
-                "Unable to create optimizer via " + constructor, e);
-          } catch (InvocationTargetException e) {
-            throw new IllegalStateException(
-                "Unable to create optimizer via " + constructor, e);
-          }
+      return a0 -> {
+        try {
+          return constructor.newInstance(a0);
+        } catch (InstantiationException | InvocationTargetException | IllegalAccessException e) {
+          throw new IllegalStateException(
+              "Unable to create optimizer via " + constructor, e);
         }
       };
     } catch (NoSuchMethodException e) {
@@ -144,7 +130,7 @@ public class ClassDeclarationFinder extends Visitor {
    * @param newExpression expression to optimize
    * @return nested visitor if anonymous class is given
    */
-  @Override public Visitor preVisit(NewExpression newExpression) {
+  @Override public Shuttle preVisit(NewExpression newExpression) {
     if (newExpression.memberDeclarations == null) {
       return this;
     }
@@ -159,7 +145,7 @@ public class ClassDeclarationFinder extends Visitor {
    * @param classDeclaration expression to optimize
    * @return nested visitor
    */
-  @Override public Visitor preVisit(ClassDeclaration classDeclaration) {
+  @Override public Shuttle preVisit(ClassDeclaration classDeclaration) {
     ClassDeclarationFinder visitor = goDeeper();
     visitor.learnFinalStaticDeclarations(classDeclaration.memberDeclarations);
     return visitor;
@@ -228,7 +214,7 @@ public class ClassDeclarationFinder extends Visitor {
       return memberDeclarations;
     }
     List<MemberDeclaration> newDecls =
-        new ArrayList<MemberDeclaration>(memberDeclarations.size()
+        new ArrayList<>(memberDeclarations.size()
             + addedDeclarations.size());
     newDecls.addAll(memberDeclarations);
     newDecls.addAll(addedDeclarations);

@@ -65,10 +65,10 @@ public class MongoRules {
   protected static final Logger LOGGER = CalciteTrace.getPlannerTracer();
 
   public static final RelOptRule[] RULES = {
-    MongoSortRule.INSTANCE,
-    MongoFilterRule.INSTANCE,
-    MongoProjectRule.INSTANCE,
-    MongoAggregateRule.INSTANCE,
+      MongoSortRule.INSTANCE,
+      MongoFilterRule.INSTANCE,
+      MongoProjectRule.INSTANCE,
+      MongoAggregateRule.INSTANCE,
   };
 
   /** Returns 'string' if it is a call to item['string'], null otherwise. */
@@ -98,7 +98,8 @@ public class MongoRules {
           @Override public int size() {
             return rowType.getFieldCount();
           }
-        });
+        },
+        SqlValidatorUtil.EXPR_SUGGESTER, true);
   }
 
   static String maybeQuote(String s) {
@@ -130,7 +131,7 @@ public class MongoRules {
     private final List<String> inFields;
 
     private static final Map<SqlOperator, String> MONGO_OPERATORS =
-        new HashMap<SqlOperator, String>();
+        new HashMap<>();
 
     static {
       // Arithmetic
@@ -235,7 +236,7 @@ public class MongoRules {
     }
 
     public List<String> visitList(List<RexNode> list) {
-      final List<String> strings = new ArrayList<String>();
+      final List<String> strings = new ArrayList<>();
       for (RexNode node : list) {
         strings.add(node.accept(this));
       }
@@ -247,11 +248,9 @@ public class MongoRules {
    * MongoDB calling convention. */
   abstract static class MongoConverterRule extends ConverterRule {
     protected final Convention out;
-    public MongoConverterRule(
-        Class<? extends RelNode> clazz,
-        RelTrait in,
-        Convention out,
-        String description) {
+
+    MongoConverterRule(Class<? extends RelNode> clazz, RelTrait in,
+        Convention out, String description) {
       super(clazz, in, out, description);
       this.out = out;
     }
@@ -430,7 +429,7 @@ public class MongoRules {
       }
       implementor.newline(buf)
           .append("FROM ");
-      implementor.subquery(buf, 0, getChild(), "t");
+      implementor.subQuery(buf, 0, getChild(), "t");
       if (program.getCondition() != null) {
         implementor.newline(buf);
         buf.append("WHERE ");
@@ -514,7 +513,6 @@ public class MongoRules {
             rel.getCluster(),
             traitSet,
             convert(agg.getInput(), traitSet.simplify()),
-            agg.indicator,
             agg.getGroupSet(),
             agg.getGroupSets(),
             agg.getAggCallList());

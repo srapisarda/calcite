@@ -16,8 +16,11 @@
  */
 package org.apache.calcite.schema;
 
+import org.apache.calcite.config.CalciteConnectionConfig;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
+import org.apache.calcite.sql.SqlCall;
+import org.apache.calcite.sql.SqlNode;
 
 /**
  * Table.
@@ -33,6 +36,9 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
  * multiple schemas. (Compare with the
  * <a href="http://en.wikipedia.org/wiki/Inode">i-node</a> concept in the UNIX
  * filesystem.)</p>
+ *
+ * <p>A particular table instance may also implement {@link Wrapper},
+ * to give access to sub-objects.
  *
  * @see TableMacro
  */
@@ -56,6 +62,24 @@ public interface Table {
 
   /** Type of table. */
   Schema.TableType getJdbcTableType();
+
+  /**
+   * Determines whether the given {@code column} has been rolled up.
+   * */
+  boolean isRolledUp(String column);
+
+  /**
+   * Determines whether the given rolled up column can be used inside the given aggregate function.
+   * You can assume that {@code isRolledUp(column)} is {@code true}.
+   *
+   * @param column The column name for which {@code isRolledUp} is true
+   * @param call The aggregate call
+   * @param parent Parent node of {@code call} in the {@link SqlNode} tree
+   * @param config Config settings. May be null
+   * @return true iff the given aggregate call is valid
+   */
+  boolean rolledUpColumnValidInsideAgg(String column, SqlCall call,
+      SqlNode parent, CalciteConnectionConfig config);
 }
 
 // End Table.java

@@ -31,31 +31,29 @@
  * <code>mtsql</code> format, as described below. An instance of
  * <code>ConcurrentCommandScript</code> parses and executes a script.</p>
  *
- * <hr>
+ * <h2>Script Format</h2>
  *
- * <h3>Script Format</h3>
- *
- * <h4>Syntax:</h4>
+ * <h3>Syntax:</h3>
  *
  * <p>The syntactic structure of an <i>mtsql</i> script is:
  *
- * <pre>
+ * <blockquote><pre>
  *     &lt;directive&gt;*
  *     &lt;setup section&gt;?
  *     &lt;cleanup section&gt;?
  *     &lt;thread section&gt;+
- *
+ * &nbsp;
  *     &lt;directive&gt;       := &#64;[no]lockstep | &#64;enable | &#64;disable
  *     &lt;setup section&gt;   := &#64;setup &lt;basic command&gt;* &#64;end
  *     &lt;cleanup section&gt; := &#64;setup &lt;basic command&gt;* &#64;end
  *     &lt;thread section&gt;  := &#64;thread &lt;thread-name&gt;?
  *                                &lt;command&gt;* &#64;end
- *
+ * &nbsp;
  *     &lt;command&gt; :=
  *       &lt;basic command&gt; |
  *       &lt;command prefix&gt;? &lt;threadly command&gt; |
  *       &lt;synchronization point&gt;
- * </pre>
+ * </pre></blockquote>
  *
  * <p>Blank lines and comments are allowed anywhere.
  *     A comment starts with two hyphens and runs to the end of the line.
@@ -64,14 +62,14 @@
  *     can
  *     span lines and ends with a semicolon.
  *
- * <h4>Semantics:</h4>
+ * <h3>Semantics:</h3>
  *
  * <p>Running a section means running its commands in sequence.
  *     First the setup section (if any) is run.
  *     Next all the thread sections are run at once, each in its own thread.
  *     When all these threads complete, the cleanup section (if any) is run.
  *
- * <h4>Synchronization:</h4>
+ * <h3>Synchronization:</h3>
  *
  * <p>The threads are synchronized by inserting synchronization points
  * (&#64;sync).</p>
@@ -90,7 +88,7 @@
  * antonym &#64;enable.</p>
  *
  *
- * <h4>Error handling: </h4>
+ * <h3>Error handling:</h3>
  *
  * <p>When a sql command fails, the rest of its section is skipped. However, if
  * the attribute <i>force</i> is true the error is ignored, and the section
@@ -105,36 +103,37 @@
  * cleanup section runs. If the setup section quits, then only the cleanup
  * section is run.</p>
  *
- * <h4>Basic Commands (allowed in any section):</h4>
+ * <h3>Basic Commands (allowed in any section):</h3>
  *
- * <pre>
+ * <blockquote><pre>
  * &lt;SQL statement&gt;:
  *     An SQL statement terminated by a semicolon. The statement can span lines.
- * </pre>
- * <pre>
+ * </pre></blockquote>
+ *
+ * <blockquote><pre>
  * &#64;include FILE
  *   Reads and executes the contents of FILE, another mtsql script.
  *   Inclusions may nest.
- * </pre>
+ * </pre></blockquote>
  *
- * <h4>Threaded Commands (allowed only in a &#64;thread section):</h4>
+ * <h3>Threaded Commands (allowed only in a &#64;thread section):</h3>
  *
- * <pre>
+ * <blockquote><pre>
  * &#64;sleep N        -- thread sleeps for N milliseconds
  * &#64;echo MESSAGE   -- prints the message to stdout
- *
+ * &nbsp;
  * &lt;SQL statement&gt; ';' -- executes the SQL
  * &#64;timeout N &lt;SQL&gt; ';' -- executes the SQL with the given ms timeout
  * &#64;rowlimit N &lt;SQL&gt; ';' -- executes the SQL, stops after N rows
  * &#64;err &lt;SQL&gt; ';' -- executes the SQL, expecting it to fail
- *
+ * &nbsp;
  * &#64;repeat N &lt;command&gt;+ &#64;end
  *     Denotes a repeated block of commands, with repeat count = N.
  *     N must be positive.
- *
+ * &nbsp;
  * &#64;prepare SQL-STATEMENT ';'
  *     Prepares the sql. A thread has at most one prepared statement at a time.
- *
+ * &nbsp;
  * &#64;print FORMAT
  *     Sets the result-printing format for the current prepared statement.
  *     FORMAT is a sequence of the phrases:
@@ -145,26 +144,26 @@
  *         time             -- means print the time each printed row was fetched
  *         total            -- means print a final summary, with row count and
  *                             net fetch time (not including any timeout).
- *
+ * &nbsp;
  * (Sorry, no way yet to print selected columns, to print time in a special way,
  * etc.)
- *
+ * &nbsp;
  * &#64;fetch &lt;timeout&gt;?
  *     Starts fetching and printing result rows, with an optional timeout (in
  *     msecs).  Stop on EOD or on timeout.
- *
+ * &nbsp;
  * &#64;close
  *     Closes the current prepared statement. However that an open prepared
  *     statement will be closed automatically at the end of its thread.
- *
+ * &nbsp;
  * &#64;shell &lt;Shell Command&gt;
  *     Runs the command in a spawned subshell, proceeds after it concludes, but
  *     quits if it fails.  For &#64;shell and &#64;echo, the command or message
  *     runs to the end of the line in the script, but can be continued if the
  *     line ends with a single '\'.
- * </pre>
+ * </pre></blockquote>
  *
- * <h4>Substituted Variables</h4>
+ * <h3>Substituted Variables</h3>
  *
  * <p>Needed mainly to pass arguments to the command of &#64;shell, but also
  *     useful to
@@ -180,19 +179,19 @@
  *         by a &#64;var command.</li>
  * </ul>
  *
- * <pre>
+ * <blockquote><pre>
  * &#64;var VAR
  *     Declares a variable VAR
  * &#64;var VAR1  VAR2 ... VARn
  *     Declares n variables.
- * </pre>
+ * </pre></blockquote>
  *
  * <p>The initial value of a script variable VAR is taken from the shell
  *     environment variable of the same name.  The value can be set to a
  *     different value when the script is run, by employing a phrase
  *     VAR=VALUE on the mtsql command line.</p>
  *
- * <h4>Stand-Alone Tool</h4>
+ * <h3>Stand-Alone Tool</h3>
  *
  * <p>A command-line tool that runs an mtsql script against a specified JDBC
  *     connection,a nd prints the query results. (But see &#64;print command to
@@ -209,25 +208,25 @@
  *     declared at the beginning of the script(s) in a &#64;var command.</p>
  *
  *
- * <h4>Example Script</h4>
+ * <h3>Example Script</h3>
  *
- * <pre>-- redundant:
+ * <blockquote><pre>-- redundant:
  * &#64;nolockstep
- *
+ * &nbsp;
  * -- Two threads reading the same data.
  * &#64;thread 1,2
  *         -- pre execute the SQL to prime the pumps
  *         &#64;timeout 1000 select * from sales.bids;
- *
+ * &nbsp;
  *         &#64;prepare select * from sales.bids;
- *
+ * &nbsp;
  *         -- rendezvous with writer thread
  *         &#64;sync
  *         &#64;fetch 15000
  *         &#64;sync
  *         &#64;close
  * &#64;end
- *
+ * &nbsp;
  * &#64;thread writer
  *         -- rendezvous with reader threads
  *         &#64;sync
@@ -238,21 +237,21 @@
  *         insert into sales.bids
  *                 values(2,  'MSFT', 101, 23.45, 20000, 'Microsoft at 23.45');
  *         commit;
- *
+ * &nbsp;
  *         -- real test has more inserts here
- *
+ * &nbsp;
  *         &#64;sync
- * &#64;end</pre>
+ * &#64;end</pre></blockquote>
  *
- *         <h3>Example Output File</h3>
+ * <h3>Example Output File</h3>
  *
- *         The output from each thread is stored in a temporary file until the
- *         test completes. At that point, the files are merged together into a
- *         single <tt>.log</tt> file containing the results of each thread, in
- *         the order the threads were defined. The output for the example script
- *         looks like:
+ * <p>The output from each thread is stored in a temporary file until
+ * the test completes. At that point, the files are merged together
+ * into a single <code>.log</code> file containing the results of each
+ * thread, in the order the threads were defined. The output for the
+ * example script looks like:
  *
- * <pre>-- thread 1
+ * <blockquote><pre>-- thread 1
  * &gt; select * from sales.bids;
  * +---------+------------+
  * | DEPTNO  |    NAME    |
@@ -270,9 +269,9 @@
  * | 20      | Marketing  |
  * | 30      | Accounts   |
  * +---------+------------+
- *
+ * &nbsp;
  * -- end of thread 1
- *
+ * &nbsp;
  * -- thread 2
  * &gt; select * from sales.bids;
  * +---------+------------+
@@ -291,9 +290,9 @@
  * | 20      | Marketing  |
  * | 30      | Accounts   |
  * +---------+------------+
- *
+ * &nbsp;
  * -- end of thread 2
- *
+ * &nbsp;
  * -- thread writer
  * &gt; insert into sales.bids
  * &gt;    values(1,  'ORCL', 100, 12.34,     10000, 'Oracle at 12.34');
@@ -303,9 +302,9 @@
  * &gt;    values(2,  'MSFT', 101, 23.45,     20000, 'Microsoft at 23.45');
  * 1 row affected.
  * &gt; commit;
- * -- end of thread writer</pre>
+ * -- end of thread writer</pre></blockquote>
  *
- *         (Yes the results of the select statements are obviously wrong.)
+ * <p>(Yes the results of the select statements are obviously wrong.)
  *
  *         <h3>Open Issues</h3>
  *

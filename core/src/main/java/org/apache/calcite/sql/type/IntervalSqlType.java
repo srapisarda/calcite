@@ -22,9 +22,12 @@ import org.apache.calcite.rel.type.RelDataTypeFactoryImpl;
 import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.sql.SqlDialect;
 import org.apache.calcite.sql.SqlIntervalQualifier;
+import org.apache.calcite.sql.dialect.AnsiSqlDialect;
 import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.pretty.SqlPrettyWriter;
 import org.apache.calcite.sql.util.SqlString;
+
+import java.util.Objects;
 
 /**
  * IntervalSqlType represents a standard SQL datetime interval type.
@@ -33,7 +36,7 @@ public class IntervalSqlType extends AbstractSqlType {
   //~ Instance fields --------------------------------------------------------
 
   private final RelDataTypeSystem typeSystem;
-  private SqlIntervalQualifier intervalQualifier;
+  private final SqlIntervalQualifier intervalQualifier;
 
   //~ Constructors -----------------------------------------------------------
 
@@ -44,24 +47,18 @@ public class IntervalSqlType extends AbstractSqlType {
   public IntervalSqlType(RelDataTypeSystem typeSystem,
       SqlIntervalQualifier intervalQualifier,
       boolean isNullable) {
-    super(intervalQualifier.isYearMonth()
-            ? SqlTypeName.INTERVAL_YEAR_MONTH
-            : SqlTypeName.INTERVAL_DAY_TIME,
-        isNullable,
-        null);
-    this.typeSystem = typeSystem;
-    this.intervalQualifier = intervalQualifier;
+    super(intervalQualifier.typeName(), isNullable, null);
+    this.typeSystem = Objects.requireNonNull(typeSystem);
+    this.intervalQualifier = Objects.requireNonNull(intervalQualifier);
     computeDigest();
   }
 
   //~ Methods ----------------------------------------------------------------
 
-  // implement RelDataTypeImpl
   protected void generateTypeString(StringBuilder sb, boolean withDetail) {
     sb.append("INTERVAL ");
-    SqlDialect dialect = null;
-    dialect = SqlDialect.DUMMY;
-    SqlPrettyWriter writer = new SqlPrettyWriter(dialect);
+    final SqlDialect dialect = AnsiSqlDialect.DEFAULT;
+    final SqlPrettyWriter writer = new SqlPrettyWriter(dialect);
     writer.setAlwaysUseParentheses(false);
     writer.setSelectListItemsOnSeparateLines(false);
     writer.setIndentation(0);
@@ -70,8 +67,7 @@ public class IntervalSqlType extends AbstractSqlType {
     sb.append(new SqlString(dialect, sql).getSql());
   }
 
-  // implement RelDataType
-  public SqlIntervalQualifier getIntervalQualifier() {
+  @Override public SqlIntervalQualifier getIntervalQualifier() {
     return intervalQualifier;
   }
 
@@ -86,24 +82,17 @@ public class IntervalSqlType extends AbstractSqlType {
   public IntervalSqlType combine(
       RelDataTypeFactoryImpl typeFactory,
       IntervalSqlType that) {
-    assert this.intervalQualifier.isYearMonth()
-        == that.intervalQualifier.isYearMonth();
+    assert this.typeName.isYearMonth() == that.typeName.isYearMonth();
     boolean nullable = isNullable || that.isNullable;
-    TimeUnit thisStart =
-        this.intervalQualifier.getStartUnit();
-    TimeUnit thisEnd =
-        this.intervalQualifier.getEndUnit();
-    TimeUnit thatStart =
-        that.intervalQualifier.getStartUnit();
-    TimeUnit thatEnd =
-        that.intervalQualifier.getEndUnit();
-
-    assert null != thisStart;
-    assert null != thatStart;
+    TimeUnit thisStart = Objects.requireNonNull(typeName.getStartUnit());
+    TimeUnit thisEnd = typeName.getEndUnit();
+    final TimeUnit thatStart =
+        Objects.requireNonNull(that.typeName.getStartUnit());
+    final TimeUnit thatEnd = that.typeName.getEndUnit();
 
     int secondPrec =
         this.intervalQualifier.getStartPrecisionPreservingDefault();
-    int fracPrec =
+    final int fracPrec =
         SqlIntervalQualifier.combineFractionalSecondPrecisionPreservingDefault(
             typeSystem,
             this.intervalQualifier,

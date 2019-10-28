@@ -22,15 +22,24 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.convert.ConverterRule;
 import org.apache.calcite.rel.logical.LogicalTableModify;
 import org.apache.calcite.schema.ModifiableTable;
+import org.apache.calcite.tools.RelBuilderFactory;
+
+import java.util.function.Predicate;
 
 /** Planner rule that converts a
  * {@link org.apache.calcite.rel.logical.LogicalTableModify}
  * relational expression
  * {@link org.apache.calcite.adapter.enumerable.EnumerableConvention enumerable calling convention}. */
 public class EnumerableTableModifyRule extends ConverterRule {
-  EnumerableTableModifyRule() {
-    super(LogicalTableModify.class, Convention.NONE,
-        EnumerableConvention.INSTANCE, "EnumerableTableModificationRule");
+  /**
+   * Creates an EnumerableTableModifyRule.
+   *
+   * @param relBuilderFactory Builder for relational expressions
+   */
+  public EnumerableTableModifyRule(RelBuilderFactory relBuilderFactory) {
+    super(LogicalTableModify.class, (Predicate<RelNode>) r -> true,
+        Convention.NONE, EnumerableConvention.INSTANCE, relBuilderFactory,
+        "EnumerableTableModificationRule");
   }
 
   @Override public RelNode convert(RelNode rel) {
@@ -50,6 +59,7 @@ public class EnumerableTableModifyRule extends ConverterRule {
         convert(modify.getInput(), traitSet),
         modify.getOperation(),
         modify.getUpdateColumnList(),
+        modify.getSourceExpressionList(),
         modify.isFlattened());
   }
 }

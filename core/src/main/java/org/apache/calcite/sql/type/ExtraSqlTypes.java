@@ -21,11 +21,11 @@ package org.apache.calcite.sql.type;
  * version of Java supported by Farrago (this currently means anything
  * introduced in JDK 1.6 or later).
  *
- * Allows us to deal sanely with type constants returned by newer JDBC
+ * <p>Allows us to deal sanely with type constants returned by newer JDBC
  * drivers when running a version of Farrago compiled under an old
  * version of the JDK (i.e. 1.5).
  *
- * By itself, the presence of a constant here doesn't imply that farrago
+ * <p>By itself, the presence of a constant here doesn't imply that farrago
  * fully supports the associated type.  This is simply a mirror of the
  * missing constant values.
  */
@@ -42,6 +42,9 @@ public interface ExtraSqlTypes {
   int REF_CURSOR = 2012;
   int TIME_WITH_TIMEZONE = 2013;
   int TIMESTAMP_WITH_TIMEZONE = 2014;
+
+  // From OpenGIS
+  int GEOMETRY = 2015; // TODO: confirm
 }
 
 // End ExtraSqlTypes.java

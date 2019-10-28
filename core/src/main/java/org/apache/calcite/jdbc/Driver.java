@@ -81,7 +81,7 @@ public class Driver extends UnregisteredDriver {
     }
   }
 
-  protected DriverVersion createDriverVersion() {
+  @Override protected DriverVersion createDriverVersion() {
     return DriverVersion.load(
         Driver.class,
         "org-apache-calcite-jdbc.properties",
@@ -174,6 +174,14 @@ public class Driver extends UnregisteredDriver {
       JavaTypeFactory typeFactory) {
     return (CalciteConnection) ((CalciteFactory) factory)
         .newConnection(this, factory, CONNECT_STRING_PREFIX, new Properties(),
+            rootSchema, typeFactory);
+  }
+
+  /** Creates an internal connection. */
+  CalciteConnection connect(CalciteSchema rootSchema,
+      JavaTypeFactory typeFactory, Properties properties) {
+    return (CalciteConnection) ((CalciteFactory) factory)
+        .newConnection(this, factory, CONNECT_STRING_PREFIX, properties,
             rootSchema, typeFactory);
   }
 }

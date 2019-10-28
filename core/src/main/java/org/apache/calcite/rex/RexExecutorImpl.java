@@ -20,6 +20,7 @@ import org.apache.calcite.DataContext;
 import org.apache.calcite.adapter.enumerable.RexToLixTranslator;
 import org.apache.calcite.adapter.enumerable.RexToLixTranslator.InputGetter;
 import org.apache.calcite.adapter.java.JavaTypeFactory;
+import org.apache.calcite.config.CalciteSystemProperty;
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.linq4j.tree.BlockBuilder;
 import org.apache.calcite.linq4j.tree.Expression;
@@ -28,10 +29,10 @@ import org.apache.calcite.linq4j.tree.IndexExpression;
 import org.apache.calcite.linq4j.tree.MethodCallExpression;
 import org.apache.calcite.linq4j.tree.MethodDeclaration;
 import org.apache.calcite.linq4j.tree.ParameterExpression;
-import org.apache.calcite.plan.RelOptPlanner;
-import org.apache.calcite.prepare.CalcitePrepareImpl;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
+import org.apache.calcite.sql.validate.SqlConformance;
+import org.apache.calcite.sql.validate.SqlConformanceEnum;
 import org.apache.calcite.util.BuiltInMethod;
 import org.apache.calcite.util.Util;
 
@@ -44,7 +45,7 @@ import java.util.List;
 /**
 * Evaluates a {@link RexNode} expression.
 */
-public class RexExecutorImpl implements RelOptPlanner.Executor {
+public class RexExecutorImpl implements RexExecutor {
 
   private final DataContext dataContext;
 
@@ -77,9 +78,11 @@ public class RexExecutorImpl implements RelOptPlanner.Executor {
         Expressions.declare(
             Modifier.FINAL, root_,
             Expressions.convert_(root0_, DataContext.class)));
+    final SqlConformance conformance = SqlConformanceEnum.DEFAULT;
+    final RexProgram program = programBuilder.getProgram();
     final List<Expression> expressions =
-        RexToLixTranslator.translateProjects(programBuilder.getProgram(),
-        javaTypeFactory, blockBuilder, null, root_, getter, null);
+        RexToLixTranslator.translateProjects(program, javaTypeFactory,
+            conformance, blockBuilder, null, root_, getter, null);
     blockBuilder.add(
         Expressions.return_(null,
             Expressions.newArrayInit(Object[].class, expressions)));
@@ -88,7 +91,7 @@ public class RexExecutorImpl implements RelOptPlanner.Executor {
             BuiltInMethod.FUNCTION1_APPLY.method.getName(),
             ImmutableList.of(root0_), blockBuilder.toBlock());
     String code = Expressions.toString(methodDecl);
-    if (CalcitePrepareImpl.DEBUG) {
+    if (CalciteSystemProperty.DEBUG.value()) {
       Util.debugCode(System.out, code);
     }
     return code;
@@ -104,8 +107,9 @@ public class RexExecutorImpl implements RelOptPlanner.Executor {
    */
   public RexExecutable getExecutable(RexBuilder rexBuilder, List<RexNode> exps,
       RelDataType rowType) {
-    final InputGetter getter =
-        new DataContextInputGetter(rowType, rexBuilder.getTypeFactory());
+    final JavaTypeFactoryImpl typeFactory =
+        new JavaTypeFactoryImpl(rexBuilder.getTypeFactory().getTypeSystem());
+    final InputGetter getter = new DataContextInputGetter(rowType, typeFactory);
     final String code = compile(rexBuilder, exps, getter, rowType);
     return new RexExecutable(code, "generated Rex code");
   }
@@ -116,11 +120,8 @@ public class RexExecutorImpl implements RelOptPlanner.Executor {
   public void reduce(RexBuilder rexBuilder, List<RexNode> constExps,
       List<RexNode> reducedValues) {
     final String code = compile(rexBuilder, constExps,
-        new RexToLixTranslator.InputGetter() {
-          public Expression field(BlockBuilder list, int index,
-              Type storageType) {
-            throw new UnsupportedOperationException();
-          }
+        (list, index, storageType) -> {
+          throw new UnsupportedOperationException();
         });
 
     final RexExecutable executable = new RexExecutable(code, constExps);
@@ -138,7 +139,7 @@ public class RexExecutorImpl implements RelOptPlanner.Executor {
     private final RelDataTypeFactory typeFactory;
     private final RelDataType rowType;
 
-    public DataContextInputGetter(RelDataType rowType,
+    DataContextInputGetter(RelDataType rowType,
         RelDataTypeFactory typeFactory) {
       this.rowType = rowType;
       this.typeFactory = typeFactory;

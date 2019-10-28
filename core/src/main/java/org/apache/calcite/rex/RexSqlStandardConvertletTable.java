@@ -22,8 +22,8 @@ import org.apache.calcite.sql.SqlDataTypeSpec;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
 import org.apache.calcite.sql.SqlOperator;
-import org.apache.calcite.sql.fun.OracleSqlOperatorTable;
 import org.apache.calcite.sql.fun.SqlCaseOperator;
+import org.apache.calcite.sql.fun.SqlLibraryOperators;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.type.SqlTypeUtil;
@@ -58,6 +58,10 @@ public class RexSqlStandardConvertletTable
     registerEquivOp(SqlStdOperatorTable.NOT_LIKE);
     registerEquivOp(SqlStdOperatorTable.SIMILAR_TO);
     registerEquivOp(SqlStdOperatorTable.NOT_SIMILAR_TO);
+    registerEquivOp(SqlStdOperatorTable.POSIX_REGEX_CASE_SENSITIVE);
+    registerEquivOp(SqlStdOperatorTable.POSIX_REGEX_CASE_INSENSITIVE);
+    registerEquivOp(SqlStdOperatorTable.NEGATED_POSIX_REGEX_CASE_SENSITIVE);
+    registerEquivOp(SqlStdOperatorTable.NEGATED_POSIX_REGEX_CASE_INSENSITIVE);
     registerEquivOp(SqlStdOperatorTable.PLUS);
     registerEquivOp(SqlStdOperatorTable.MINUS);
     registerEquivOp(SqlStdOperatorTable.MULTIPLY);
@@ -100,7 +104,7 @@ public class RexSqlStandardConvertletTable
     registerEquivOp(SqlStdOperatorTable.TRANSLATE);
     registerEquivOp(SqlStdOperatorTable.OVERLAY);
     registerEquivOp(SqlStdOperatorTable.TRIM);
-    registerEquivOp(OracleSqlOperatorTable.TRANSLATE3);
+    registerEquivOp(SqlLibraryOperators.TRANSLATE3);
     registerEquivOp(SqlStdOperatorTable.POSITION);
     registerEquivOp(SqlStdOperatorTable.CHAR_LENGTH);
     registerEquivOp(SqlStdOperatorTable.CHARACTER_LENGTH);
@@ -176,24 +180,8 @@ public class RexSqlStandardConvertletTable
    *
    * @param op operator instance
    */
-  protected void registerEquivOp(final SqlOperator op) {
-    registerOp(
-        op,
-        new RexSqlConvertlet() {
-          public SqlNode convertCall(
-              RexToSqlNodeConverter converter,
-              RexCall call) {
-            SqlNode[] operands =
-                convertExpressionList(converter, call.operands);
-            if (operands == null) {
-              return null;
-            }
-            return new SqlBasicCall(
-                op,
-                operands,
-                SqlParserPos.ZERO);
-          }
-        });
+  protected void registerEquivOp(SqlOperator op) {
+    registerOp(op, new EquivConvertlet(op));
   }
 
   /**
@@ -205,26 +193,21 @@ public class RexSqlStandardConvertletTable
    */
   private void registerTypeAppendOp(final SqlOperator op) {
     registerOp(
-        op,
-        new RexSqlConvertlet() {
-          public SqlNode convertCall(
-              RexToSqlNodeConverter converter,
-              RexCall call) {
-            SqlNode[] operands =
-                convertExpressionList(converter, call.operands);
-            if (operands == null) {
-              return null;
-            }
-            List<SqlNode> operandList =
-                new ArrayList<SqlNode>(Arrays.asList(operands));
-            SqlDataTypeSpec typeSpec =
-                SqlTypeUtil.convertTypeToSpec(call.getType());
-            operandList.add(typeSpec);
-            return new SqlBasicCall(
-                op,
-                operandList.toArray(new SqlNode[operandList.size()]),
-                SqlParserPos.ZERO);
+        op, (converter, call) -> {
+          SqlNode[] operands =
+              convertExpressionList(converter, call.operands);
+          if (operands == null) {
+            return null;
           }
+          List<SqlNode> operandList =
+              new ArrayList<>(Arrays.asList(operands));
+          SqlDataTypeSpec typeSpec =
+              SqlTypeUtil.convertTypeToSpec(call.getType());
+          operandList.add(typeSpec);
+          return new SqlBasicCall(
+              op,
+              operandList.toArray(new SqlNode[0]),
+              SqlParserPos.ZERO);
         });
   }
 
@@ -236,34 +219,43 @@ public class RexSqlStandardConvertletTable
    */
   private void registerCaseOp(final SqlOperator op) {
     registerOp(
-        op,
-        new RexSqlConvertlet() {
-          public SqlNode convertCall(
-              RexToSqlNodeConverter converter,
-              RexCall call) {
-            assert op instanceof SqlCaseOperator;
-            SqlNode[] operands =
-                convertExpressionList(converter, call.operands);
-            if (operands == null) {
-              return null;
-            }
-            SqlNodeList whenList = new SqlNodeList(SqlParserPos.ZERO);
-            SqlNodeList thenList = new SqlNodeList(SqlParserPos.ZERO);
-            int i = 0;
-            while (i < operands.length - 1) {
-              whenList.add(operands[i]);
-              ++i;
-              thenList.add(operands[i]);
-              ++i;
-            }
-            SqlNode elseExpr = operands[i];
-            SqlNode[] newOperands = new SqlNode[3];
-            newOperands[0] = whenList;
-            newOperands[1] = thenList;
-            newOperands[2] = elseExpr;
-            return op.createCall(null, SqlParserPos.ZERO, newOperands);
+        op, (converter, call) -> {
+          assert op instanceof SqlCaseOperator;
+          SqlNode[] operands =
+              convertExpressionList(converter, call.operands);
+          if (operands == null) {
+            return null;
           }
+          SqlNodeList whenList = new SqlNodeList(SqlParserPos.ZERO);
+          SqlNodeList thenList = new SqlNodeList(SqlParserPos.ZERO);
+          int i = 0;
+          while (i < operands.length - 1) {
+            whenList.add(operands[i]);
+            ++i;
+            thenList.add(operands[i]);
+            ++i;
+          }
+          SqlNode elseExpr = operands[i];
+          return op.createCall(null, SqlParserPos.ZERO, null, whenList, thenList, elseExpr);
         });
+  }
+
+  /** Convertlet that converts a {@link SqlCall} to a {@link RexCall} of the
+   * same operator. */
+  private class EquivConvertlet implements RexSqlConvertlet {
+    private final SqlOperator op;
+
+    EquivConvertlet(SqlOperator op) {
+      this.op = op;
+    }
+
+    public SqlNode convertCall(RexToSqlNodeConverter converter, RexCall call) {
+      SqlNode[] operands = convertExpressionList(converter, call.operands);
+      if (operands == null) {
+        return null;
+      }
+      return new SqlBasicCall(op, operands, SqlParserPos.ZERO);
+    }
   }
 }
 

@@ -21,12 +21,12 @@ limitations under the License.
   <parent>
     <groupId>org.apache.calcite</groupId>
     <artifactId>calcite</artifactId>
-    <version>1.9.0-SNAPSHOT</version>
+    <version>1.22.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>calcite-elasticsearch</artifactId>
   <packaging>jar</packaging>
-  <version>1.9.0-SNAPSHOT</version>
+  <version>1.22.0-SNAPSHOT</version>
   <name>Calcite Elasticsearch</name>
   <description>Elasticsearch adapter for Calcite</description>
 
@@ -40,10 +40,6 @@ limitations under the License.
       <artifactId>guava</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.apache.calcite.avatica</groupId>
-      <artifactId>avatica</artifactId>
-    </dependency>
-    <dependency>
       <groupId>org.apache.calcite</groupId>
       <artifactId>calcite-core</artifactId>
       <type>jar</type>
@@ -55,6 +51,28 @@ limitations under the License.
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>org.apache.calcite.avatica</groupId>
+      <artifactId>avatica-core</artifactId>
+      <type>jar</type>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-annotations</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.google.code.findbugs</groupId>
+      <artifactId>jsr305</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
       <scope>test</scope>
@@ -64,18 +82,66 @@ limitations under the License.
       <artifactId>calcite-linq4j</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.elasticsearch.client</groupId>
+      <artifactId>elasticsearch-rest-client</artifactId>
+      <version>${elasticsearch.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.httpcomponents</groupId>
+      <artifactId>httpcore</artifactId>
+      <version>${httpcore.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.httpcomponents</groupId>
+      <artifactId>httpclient</artifactId>
+      <version>${httpclient.version}</version>
+    </dependency>
+    <dependency>
       <groupId>org.elasticsearch</groupId>
       <artifactId>elasticsearch</artifactId>
-      <version>${elasticsearch-java-driver.version}</version>
+      <version>${elasticsearch.version}</version>
+      <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>com.carrotsearch</groupId>
-      <artifactId>hppc</artifactId>
-      <version>${hppc.version}</version>
+      <!-- Using special netty transport to start embedded ES instance during tests -->
+      <groupId>org.elasticsearch.plugin</groupId>
+      <artifactId>transport-netty4-client</artifactId>
+      <version>${elasticsearch.version}</version>
+      <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>com.google.code.findbugs</groupId>
-      <artifactId>jsr305</artifactId>
+      <!-- Elastic search doesn't export painless script artifact to maven central.
+      Using 3rd party version (codelibs)
+      This JAR is used only in tests
+      https://discuss.elastic.co/t/5-0-0-using-painless-in-esintegtestcase/64447/13
+      -->
+      <groupId>org.codelibs.elasticsearch.module</groupId>
+      <artifactId>lang-painless</artifactId>
+      <version>${elasticsearch.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <!-- log4j2 is default logging framework for ES server -->
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-api</artifactId>
+      <version>${log4j2.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+      <version>${log4j2.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.hamcrest</groupId>
+      <artifactId>hamcrest-core</artifactId>
+      <version>${hamcrest.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
     </dependency>
   </dependencies>
 
@@ -97,6 +163,8 @@ limitations under the License.
                 <ignoredUnusedDeclaredDependency>org.apache.calcite.avatica:avatica</ignoredUnusedDeclaredDependency>
                 <ignoredUnusedDeclaredDependency>org.slf4j:slf4j-api</ignoredUnusedDeclaredDependency>
                 <ignoredUnusedDeclaredDependency>org.slf4j:slf4j-log4j12</ignoredUnusedDeclaredDependency>
+                <ignoredUnusedDeclaredDependency>org.apache.logging.log4j:log4j-api</ignoredUnusedDeclaredDependency>
+                <ignoredUnusedDeclaredDependency>org.apache.logging.log4j:log4j-core</ignoredUnusedDeclaredDependency>
               </ignoredUnusedDeclaredDependencies>
             </configuration>
           </execution>

@@ -16,7 +16,7 @@
  */
 package org.apache.calcite.util.javac;
 
-import org.apache.calcite.util.Util;
+import org.apache.calcite.config.CalciteSystemProperty;
 
 import org.codehaus.janino.JavaSourceClassLoader;
 import org.codehaus.janino.util.ClassFile;
@@ -26,6 +26,7 @@ import org.codehaus.janino.util.resource.ResourceFinder;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -44,7 +45,6 @@ public class JaninoCompiler implements JavaCompiler {
   //~ Constructors -----------------------------------------------------------
 
   public JaninoCompiler() {
-    args = new JaninoCompilerArgs();
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -66,10 +66,10 @@ public class JaninoCompiler implements JavaCompiler {
       parentClassLoader = classLoader;
     }
 
-    Map<String, byte[]> sourceMap = new HashMap<String, byte[]>();
+    Map<String, byte[]> sourceMap = new HashMap<>();
     sourceMap.put(
         ClassFile.getSourceResourceName(args.fullClassName),
-        args.source.getBytes());
+        args.source.getBytes(StandardCharsets.UTF_8));
     MapResourceFinder sourceFinder = new MapResourceFinder(sourceMap);
 
     classLoader =
@@ -78,10 +78,14 @@ public class JaninoCompiler implements JavaCompiler {
             sourceFinder,
             null,
             args.destdir == null ? null : new File(args.destdir));
+    if (CalciteSystemProperty.DEBUG.value()) {
+      // Add line numbers to the generated janino class
+      classLoader.setDebuggingInfo(true, true, true);
+    }
     try {
       classLoader.loadClass(args.fullClassName);
     } catch (ClassNotFoundException ex) {
-      throw Util.newInternal(ex, "while compiling " + args.fullClassName);
+      throw new RuntimeException("while compiling " + args.fullClassName, ex);
     }
   }
 
@@ -140,7 +144,7 @@ public class JaninoCompiler implements JavaCompiler {
     private final File destDir;
     private int nBytes;
 
-    public AccountingClassLoader(
+    AccountingClassLoader(
         ClassLoader parentClassLoader,
         ResourceFinder sourceFinder,
         String optionalCharacterEncoding,
@@ -156,12 +160,11 @@ public class JaninoCompiler implements JavaCompiler {
       return nBytes;
     }
 
-    // override JavaSourceClassLoader
-    public Map generateBytecodes(String name)
+    @Override public Map<String, byte[]> generateBytecodes(String name)
         throws ClassNotFoundException {
-      Map<String, byte[]> map = super.generateBytecodes(name);
+      final Map<String, byte[]> map = super.generateBytecodes(name);
       if (map == null) {
-        return map;
+        return null;
       }
 
       if (destDir != null) {

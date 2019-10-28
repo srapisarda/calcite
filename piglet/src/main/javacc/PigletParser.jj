@@ -35,10 +35,10 @@ import org.apache.calcite.util.trace.CalciteTrace;
 import org.apache.calcite.util.Pair;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import org.slf4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.apache.calcite.util.Static.RESOURCE;
@@ -89,11 +89,11 @@ JAVACODE SqlParserPos pos() {
 }
 
 JAVACODE SqlParserPos pos2(SqlParserPos p) {
-  return pos().plus(p);
+  return p.plus(pos());
 }
 
 JAVACODE SqlParserPos pos3(Node n) {
-  return pos().plus(n.pos);
+  return n.pos.plus(pos());
 }
 
 /**
@@ -161,7 +161,7 @@ JAVACODE SqlParseException convertException(Throwable ex) {
  */
 Program stmtListEof() :
 {
-  final List<Stmt> list = Lists.newArrayList();
+  final List<Stmt> list = new ArrayList<Stmt>();
   Stmt s;
 }
 {
@@ -186,7 +186,7 @@ Stmt stmt() :
 }
 {
   (
-    target = simpleIdentifier() <EQ>
+    LOOKAHEAD(2) target = simpleIdentifier() <EQ>
     (
       s = loadStmt(target)
     |
@@ -205,6 +205,7 @@ Stmt stmt() :
       s = groupStmt(target)
     )
   |
+    LOOKAHEAD(2)
     s = describeStmt()
   |
     s = dumpStmt()
@@ -311,7 +312,6 @@ Assignment foreachStmt(final Identifier target) :
 {
   <FOREACH> id = simpleIdentifier()
   (
-    LOOKAHEAD(1)
     <GENERATE> expList = expCommaList() <SEMICOLON> {
       return new ForeachStmt(pos3(target), target, id, expList, schema);
     }
@@ -326,13 +326,14 @@ Assignment foreachStmt(final Identifier target) :
 List<Stmt> nestedStmtList() :
 {
   Assignment s;
-  final List<Stmt> list = Lists.newArrayList();
+  final List<Stmt> list = new ArrayList<Stmt>();
 }
 {
   s = nestedStmt() {
     list.add(s);
   }
   (
+    LOOKAHEAD(2)
     s = nestedStmt() {
       list.add(s);
     }
@@ -388,7 +389,8 @@ OrderStmt orderStmt(final Identifier target) :
 
 List<Pair<Identifier, Direction>> orderFieldCommaList() :
 {
-  final List<Pair<Identifier, Direction>> list = Lists.newArrayList();
+  final List<Pair<Identifier, Direction>> list =
+      new ArrayList<Pair<Identifier, Direction>>();
   Pair<Identifier, Direction> field;
 }
 {
@@ -449,6 +451,7 @@ GroupStmt groupStmt(final Identifier target) :
   |
     <BY>
     (
+      LOOKAHEAD(3)
       keys = tuple()
     |
       exp = exp() {
@@ -593,6 +596,7 @@ Node exp3() :
 }
 {
   (
+    LOOKAHEAD(3)
     <NOT> {
       p = pos();
     }
@@ -730,7 +734,7 @@ Node atom() :
 /** A non-empty list of expressions. */
 List<Node> expCommaList() :
 {
-  final List<Node> list = Lists.newArrayList();
+  final List<Node> list = new ArrayList<Node>();
   Node e;
 }
 {
@@ -1045,7 +1049,7 @@ String commonNonReservedKeyWord() :
  *****************************************/
 
 TOKEN_MGR_DECLS : {
-    List<Integer> lexicalStateStack = Lists.newArrayList();
+    List<Integer> lexicalStateStack = new ArrayList<Integer>();
 
     void pushState() {
       lexicalStateStack.add(curLexState);

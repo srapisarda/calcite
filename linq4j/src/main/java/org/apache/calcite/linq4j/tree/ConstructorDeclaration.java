@@ -16,7 +16,6 @@
  */
 package org.apache.calcite.linq4j.tree;
 
-import com.google.common.base.Function;
 import com.google.common.collect.Lists;
 
 import java.lang.reflect.Modifier;
@@ -48,11 +47,15 @@ public class ConstructorDeclaration extends MemberDeclaration {
     this.body = body;
   }
 
-  @Override public MemberDeclaration accept(Visitor visitor) {
-    visitor = visitor.preVisit(this);
+  @Override public MemberDeclaration accept(Shuttle shuttle) {
+    shuttle = shuttle.preVisit(this);
     // do not visit parameters
-    final BlockStatement body = this.body.accept(visitor);
-    return visitor.visit(this, body);
+    final BlockStatement body = this.body.accept(shuttle);
+    return shuttle.visit(this, body);
+  }
+
+  public <R> R accept(Visitor<R> visitor) {
+    return visitor.visit(this);
   }
 
   public void accept(ExpressionWriter writer) {
@@ -64,16 +67,13 @@ public class ConstructorDeclaration extends MemberDeclaration {
     writer
         .append(resultType)
         .list("(", ", ", ")",
-            Lists.transform(parameters,
-                new Function<ParameterExpression, String>() {
-                  public String apply(ParameterExpression parameter) {
-                    final String modifiers =
-                        Modifier.toString(parameter.modifier);
-                    return modifiers + (modifiers.isEmpty() ? "" : " ")
-                        + Types.className(parameter.getType()) + " "
-                        + parameter.name;
-                  }
-                }))
+            Lists.transform(parameters, parameter -> {
+              final String modifiers1 =
+                  Modifier.toString(parameter.modifier);
+              return modifiers1 + (modifiers1.isEmpty() ? "" : " ")
+                  + Types.className(parameter.getType()) + " "
+                  + parameter.name;
+            }))
         .append(' ').append(body);
     writer.newlineAndIndent();
   }

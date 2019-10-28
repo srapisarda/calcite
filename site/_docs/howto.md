@@ -31,17 +31,16 @@ adapters.
 
 ## Building from a source distribution
 
-Prerequisites are maven (3.2.1 or later)
-and Java (JDK 1.7 or later, 1.8 preferred) on your path.
+Prerequisite is Java (JDK 8, 9, 10, 11, or 12) on your path.
 
-Unpack the source distribution `.tar.gz` or `.zip` file,
+Unpack the source distribution `.tar.gz` file,
 `cd` to the root directory of the unpacked source,
-then build using maven:
+then build using the included maven wrapper:
 
 {% highlight bash %}
-$ tar xvfz calcite-1.8.0-source.tar.gz
-$ cd calcite-1.8.0
-$ mvn install
+$ tar xvfz calcite-1.21.0-source.tar.gz
+$ cd calcite-1.21.0
+$ ./mvnw install
 {% endhighlight %}
 
 [Running tests](#running-tests) describes how to run more or fewer
@@ -49,17 +48,17 @@ tests.
 
 ## Building from git
 
-Prerequisites are git, maven (3.2.1 or later)
-and Java (JDK 1.7 or later, 1.8 preferred) on your path.
+Prerequisites are git
+and Java (JDK 8, 9, 10, 11, or 12) on your path.
 
 Create a local copy of the github repository,
 `cd` to its root directory,
-then build using maven:
+then build using the included maven wrapper:
 
 {% highlight bash %}
 $ git clone git://github.com/apache/calcite.git
 $ cd calcite
-$ mvn install
+$ ./mvnw install
 {% endhighlight %}
 
 Calcite includes a number of machine-generated codes. By default, these are
@@ -81,14 +80,20 @@ $ mvn package -DskipGenerate
 [Running tests](#running-tests) describes how to run more or fewer
 tests.
 
+## If you already have Apache Maven
+
+If you have already installed Maven and it is on your path, then you
+can use `mvn` rather than `./mvnw` in commands. You need Maven version
+3.5.2 or later.
+
 ## Running tests
 
 The test suite will run by default when you build, unless you specify
 `-DskipTests`:
 
 {% highlight bash %}
-$ mvn -DskipTests clean install
-$ mvn test
+$ ./mvnw -DskipTests clean install
+$ ./mvnw test
 {% endhighlight %}
 
 There are other options that control which tests are run, and in what
@@ -180,6 +185,48 @@ See the [developers guide]({{ site.baseurl }}/develop/#contributing).
 
 See the [developers guide]({{ site.baseurl }}/develop/#getting-started).
 
+## Setting up an IDE for contributing
+
+### Setting up IntelliJ IDEA
+
+To setup [IntelliJ IDEA](https://www.jetbrains.com/idea/), follow the standard steps for the installation of IDEA and set up one of the JDK versions currently supported by Calcite.
+
+Start with [building Calcite from the command line](#building-from-a-source-distribution).
+
+Go to *File > Open...* and open up Calcite's `pom.xml` file.
+When IntelliJ asks if you want to open it as a project or a file, select project.
+Also, say yes when it asks if you want a new window.
+IntelliJ's Maven project importer should handle the rest.
+
+There is a partially implemented IntelliJ code style configuration that you can import located [on GitHub](https://gist.github.com/gianm/27a4e3cad99d7b9b6513b6885d3cfcc9).
+It does not do everything needed to make Calcite's style checker happy, but
+it does a decent amount of it.
+To import, go to *Preferences > Editor > Code Style*, click the gear next to "scheme",
+then *Import Scheme > IntelliJ IDEA Code Style XML*.
+
+Once the importer is finished, test the project setup.
+For example, navigate to the method `JdbcTest.testWinAgg` with
+*Navigate > Symbol* and enter `testWinAgg`. Run `testWinAgg` by right-clicking and selecting *Run* (or the equivalent keyboard shortcut).
+
+If you encounter an error while running the `JdbcTest.testWinAgg` , run the following Maven command from the command line:
+
+`$ ./mvnw -DskipTests clean install`
+
+You should see `"BUILD SUCCESS"`.
+
+Once that is complete, proceed with running `JdbcTest.testWinAgg`.
+
+### Setting up NetBeans
+
+From the main menu, select *File > Open Project* and navigate to a name of the project (Calcite) with a small Maven icon, and choose to open.
+(See [this tutorial](https://www.packtpub.com/mapt/book/application_development/9781785286124/2/ch02lvl1sec23/importing-an-existing-maven-project-in-netbeans) for an example of how to open a Maven project)
+Wait for NetBeans to finish importing all dependencies.
+
+To ensure that the project is configured successfully, navigate to the method `testWinAgg` in `org.apache.calcite.test.JdbcTest`.
+Right-click on the method and select to *Run Focused Test Method*.
+NetBeans will run a Maven process, and you should see in the command output window a line with
+ `Running org.apache.calcite.test.JdbcTest` followed by `"BUILD SUCCESS"`.
+
 ## Tracing
 
 To enable tracing, add the following flags to the java command line:
@@ -207,6 +254,24 @@ log4j.logger.org.apache.calcite.plan.RelOptPlanner=DEBUG
 log4j.logger.org.apache.calcite.plan.hep.HepPlanner=TRACE
 {% endhighlight %}
 
+## Debugging generated classes in Intellij
+
+Calcite uses [Janino](https://janino-compiler.github.io/janino/) to generate Java
+code. The generated classes can be debugged interactively
+(see [the Janino tutorial](https://janino-compiler.github.io/janino/)).
+
+To debug generated classes, set two system properties when starting the JVM:
+
+* `-Dorg.codehaus.janino.source_debugging.enable=true`
+* `-Dorg.codehaus.janino.source_debugging.dir=C:\tmp` (This property is optional;
+  if not set, Janino will create temporary files in the system's default location
+  for temporary files, such as `/tmp` on Unix-based systems.)
+
+After code is generated, either go into Intellij and mark the folder that
+contains generated temporary files as a generated sources root or sources root,
+or directly set the value of `org.codehaus.janino.source_debugging.dir` to an
+existing source root when starting the JVM.
+
 ## CSV adapter
 
 See the [tutorial]({{ site.baseurl }}/docs/tutorial.html).
@@ -214,14 +279,14 @@ See the [tutorial]({{ site.baseurl }}/docs/tutorial.html).
 ## MongoDB adapter
 
 First, download and install Calcite,
-and <a href="http://www.mongodb.org/downloads">install MongoDB</a>.
+and <a href="https://www.mongodb.org/downloads">install MongoDB</a>.
 
 Note: you can use MongoDB from integration test virtual machine above.
 
 Import MongoDB's zipcode data set into MongoDB:
 
 {% highlight bash %}
-$ curl -o /tmp/zips.json http://media.mongodb.org/zips.json
+$ curl -o /tmp/zips.json https://media.mongodb.org/zips.json
 $ mongoimport --db test --collection zips --file /tmp/zips.json
 Tue Jun  4 16:24:14.190 check 9 29470
 Tue Jun  4 16:24:14.469 imported 29470 objects
@@ -242,13 +307,13 @@ bye
 {% endhighlight %}
 
 Connect using the
-[mongo-zips-model.json]({{ site.sourceRoot }}/mongodb/src/test/resources/mongo-zips-model.json)
+[mongo-model.json]({{ site.sourceRoot }}/mongodb/src/test/resources/mongo-model.json)
 Calcite model:
 
 {% highlight bash %}
 $ ./sqlline
-sqlline> !connect jdbc:calcite:model=mongodb/target/test-classes/mongo-zips-model.json admin admin
-Connecting to jdbc:calcite:model=mongodb/target/test-classes/mongo-zips-model.json
+sqlline> !connect jdbc:calcite:model=mongodb/target/test-classes/mongo-model.json admin admin
+Connecting to jdbc:calcite:model=mongodb/target/test-classes/mongo-model.json
 Connected to: Calcite (version 1.x.x)
 Driver: Calcite JDBC Driver (version 1.x.x)
 Autocommit status: true
@@ -279,7 +344,7 @@ $
 
 To run the test suite and sample queries against Splunk,
 load Splunk's `tutorialdata.zip` data set as described in
-<a href="http://docs.splunk.com/Documentation/Splunk/6.0.2/PivotTutorial/GetthetutorialdataintoSplunk">the Splunk tutorial</a>.
+<a href="https://docs.splunk.com/Documentation/Splunk/6.0.2/PivotTutorial/GetthetutorialdataintoSplunk">the Splunk tutorial</a>.
 
 (This step is optional, but it provides some interesting data for the sample
 queries. It is also necessary if you intend to run the test suite, using
@@ -390,32 +455,71 @@ $ ./src/main/scripts/generate-protobuf.sh
 The following sections are of interest to Calcite committers and in
 particular release managers.
 
+## Merging pull requests (for Calcite committers)
+
+These are instructions for a Calcite committer who has reviewed a pull request
+from a contributor, found it satisfactory, and is about to merge it to master.
+Usually the contributor is not a committer (otherwise they would be committing
+it themselves, after you gave approval in a review).
+
+If the PR has multiple commits, squash them into a single commit. The
+commit message should follow the conventions outined in
+[contribution guidelines]({{ site.baseurl }}/develop/#contributing).
+If there are conflicts it is better to ask the contributor to take this step,
+otherwise it is preferred to do this manually since it saves time and also
+avoids unnecessary notification messages to many people on GitHub.
+
+If the contributor is not a committer, add their name in parentheses at the end
+of the first line of the commit message.
+
+If the merge is performed via command line (not through the GitHub web
+interface), make sure the message contains a line "Close apache/calcite#YYY",
+where YYY is the GitHub pull request identifier.
+
+When the PR has been merged and pushed, be sure to update the JIRA case. You
+must:
+ * resolve the issue (do not close it as this will be done by the release
+manager);
+ * select "Fixed" as resolution cause;
+ * mark the appropriate version (e.g., 1.21.0) in the "Fix version" field;
+ * add a comment (e.g., "Fixed in ...") with a hyperlink pointing to the commit
+which resolves the issue (in GitHub or GitBox), and also thank the contributor
+for their contribution.
+
 ## Set up PGP signing keys (for Calcite committers)
 
-Follow instructions [here](http://www.apache.org/dev/release-signing) to
-create a key pair. (On Mac OS X, I did `brew install gpg` and
+Follow instructions [here](https://www.apache.org/dev/release-signing) to
+create a key pair. (On macOS, I did `brew install gpg` and
 `gpg --gen-key`.)
 
-Add your public key to the `KEYS` file by following instructions in
-the `KEYS` file.
+Add your public key to the
+[`KEYS`](https://dist.apache.org/repos/dist/release/calcite/KEYS)
+file by following instructions in the `KEYS` file.
+(The `KEYS` file is not present in the git repo or in a release tar
+ball because that would be
+[redundant](https://issues.apache.org/jira/browse/CALCITE-1746).)
+
+## Set up Maven repository credentials (for Calcite committers)
+
+Follow the instructions [here](https://www.apache.org/dev/publishing-maven-artifacts.html#dev-env) to add your credentials to your maven configuration.
 
 ## Making a snapshot (for Calcite committers)
 
 Before you start:
 
 * Set up signing keys as described above.
-* Make sure you are using JDK 1.7 (not 1.8).
+* Make sure you are using JDK 8.
 * Make sure build and tests succeed with `-Dcalcite.test.db=hsqldb` (the default)
 
 {% highlight bash %}
-# Set passphrase variable without putting it into shell history
-read -s GPG_PASSPHRASE
+# Tell GPG how to read a password from your terminal
+export GPG_TTY=$(tty)
 
 # Make sure that there are no junk files in the sandbox
 git clean -xn
-mvn clean
+./mvnw clean
 
-mvn -Papache-release -Dgpg.passphrase=${GPG_PASSPHRASE} install
+./mvnw -Papache-release install
 {% endhighlight %}
 
 When the dry-run has succeeded, change `install` to `deploy`.
@@ -425,18 +529,23 @@ When the dry-run has succeeded, change `install` to `deploy`.
 Before you start:
 
 * Set up signing keys as described above.
-* Make sure you are using JDK 1.7 (not 1.8).
+* Make sure you are using JDK 8 (not 9 or 10).
 * Check that `README` and `site/_docs/howto.md` have the correct version number.
+* Check that `NOTICE` has the current copyright year.
 * Set `version.major` and `version.minor` in `pom.xml`.
 * Make sure build and tests succeed, including with `-P it,it-oracle`.
-* Make sure that `mvn javadoc:javadoc javadoc:test-javadoc` succeeds
+* Make sure that `./mvnw javadoc:javadoc javadoc:test-javadoc` succeeds
   (i.e. gives no errors; warnings are OK)
-* Make sure that `mvn apache-rat:check` succeeds. (It will be run as part of
+* Generate a report of vulnerabilities that occur among dependencies,
+  using `-Ppedantic`; if you like, run again with `-DfailBuildOnCVSS=8` to see
+  whether serious vulnerabilities exist. Report to [private@calcite.apache.org](mailto:private@calcite.apache.org)
+  if new critical vulnerabilities are found among dependencies.
+* Make sure that `./mvnw apache-rat:check` succeeds. (It will be run as part of
   the release, but it's better to trouble-shoot early.)
 * Decide the supported configurations of JDK, operating system and
   Guava.  These will probably be the same as those described in the
   release notes of the previous release.  Document them in the release
-  notes.  To test Guava version x.y, specify `-Dguava.version=x.y`
+  notes.  To test Guava version _x.y_, specify `-Dguava.version=x.y`
 * Optional extra tests:
   * `-Dcalcite.test.db=mysql`
   * `-Dcalcite.test.db=hsqldb`
@@ -444,7 +553,7 @@ Before you start:
   * `-Dcalcite.test.mongodb`
   * `-Dcalcite.test.splunk`
 * Trigger a
-  <a href="https://scan.coverity.com/projects/2966">Coverity scan</a>
+  <a href="https://scan.coverity.com/projects/julianhyde-calcite">Coverity scan</a>
   by merging the latest code into the `julianhyde/coverity_scan` branch,
   and when it completes, make sure that there are no important issues.
 * Add release notes to `site/_docs/history.md`. Include the commit history,
@@ -455,6 +564,21 @@ Before you start:
   every "resolved" JIRA case</a> (including duplicates) has
   a fix version assigned (most likely the version we are
   just about to release)
+
+Smoke-test `sqlline` with Spatial and Oracle function tables:
+
+{% highlight sql %}
+$ ./sqlline
+> !connect jdbc:calcite:fun=spatial,oracle "sa" ""
+SELECT NVL(ST_Is3D(ST_PointFromText('POINT(-71.064544 42.28787)')), TRUE);
++--------+
+| EXPR$0 |
++--------+
+| false  |
++--------+
+1 row selected (0.039 seconds)
+> !quit
+{% endhighlight %}
 
 Create a release branch named after the release, e.g. `branch-1.1`, and push it to Apache.
 
@@ -479,52 +603,69 @@ If any of the steps fail, clean up (see below), fix the problem, and
 start again from the top.
 
 {% highlight bash %}
-# Set passphrase variable without putting it into shell history
-read -s GPG_PASSPHRASE
+# Tell GPG how to read a password from your terminal
+export GPG_TTY=$(tty)
 
 # Make sure that there are no junk files in the sandbox
 git clean -xn
-mvn clean
+./mvnw clean
 
-# Do a dry run of the release:prepare step, which sets version numbers.
-mvn -DdryRun=true -DskipTests -DreleaseVersion=X.Y.Z -DdevelopmentVersion=X.Y.Z+1-SNAPSHOT -Papache-release -Darguments="-Dgpg.passphrase=${GPG_PASSPHRASE}" release:prepare 2>&1 | tee /tmp/prepare-dry.log
+# Do a dry run of the release:prepare step, which sets version numbers
+# (accept the default tag name of calcite-X.Y.Z).
+# Note X.Y.Z is the current version we're trying to release (e.g. 1.8.0),
+# and X.(Y+1).Z is the next development version (e.g. 1.9.0).
+./mvnw -DdryRun=true -DskipTests -DreleaseVersion=X.Y.Z -DdevelopmentVersion=X.(Y+1).Z-SNAPSHOT -Papache-release -Darguments=-DskipTests release:prepare 2>&1 | tee /tmp/prepare-dry.log
+
+# If you have multiple GPG keys, you can select the key used to sign the release by adding `-Dgpg.keyname=${GPG_KEY_ID}` to `-Darguments`:
+./mvnw -DdryRun=true -DskipTests -DreleaseVersion=X.Y.Z -DdevelopmentVersion=X.(Y+1).Z-SNAPSHOT -Papache-release -Darguments="-DskipTests -Dgpg.keyname=${GPG_KEY_ID}" release:prepare 2>&1 | tee /tmp/prepare-dry.log
 {% endhighlight %}
 
-Check the artifacts:
+Check the artifacts.
+Note that when performing the dry run `SNAPSHOT` will appear in any file or directory names given below.
+The version will be automatically changed when performing the release for real.
 
-* In the `target` directory should be these 8 files, among others:
-  * apache-calcite-X.Y.Z-src.tar.gz
-  * apache-calcite-X.Y.Z-src.tar.gz.asc
-  * apache-calcite-X.Y.Z-src.tar.gz.md5
-  * apache-calcite-X.Y.Z-src.tar.gz.sha1
-  * apache-calcite-X.Y.Z-src.zip
-  * apache-calcite-X.Y.Z-src.zip.asc
-  * apache-calcite-X.Y.Z-src.zip.md5
-  * apache-calcite-X.Y.Z-src.zip.sha1
+* In the `target` directory should be these 3 files, among others:
+  * `apache-calcite-X.Y.Z-src.tar.gz`
+  * `apache-calcite-X.Y.Z-src.tar.gz.asc`
+  * `apache-calcite-X.Y.Z-src.tar.gz.sha256`
 * Note that the file names start `apache-calcite-`.
-* In the two source distros `.tar.gz` and `.zip` (currently there is
+* In the source distro `.tar.gz` (currently there is
   no binary distro), check that all files belong to a directory called
   `apache-calcite-X.Y.Z-src`.
 * That directory must contain files `NOTICE`, `LICENSE`,
   `README`, `README.md`
   * Check that the version in `README` is correct
+  * Check that the copyright year in `NOTICE` is correct
+* Make sure that there is no `KEYS` file in the source distros
 * In each .jar (for example
   `core/target/calcite-core-X.Y.Z.jar` and
   `mongodb/target/calcite-mongodb-X.Y.Z-sources.jar`), check
   that the `META-INF` directory contains `DEPENDENCIES`, `LICENSE`,
   `NOTICE` and `git.properties`
-* In each .jar, check that `org-apache-calcite-jdbc.properties` is
+* In `core/target/calcite-core-X.Y.Z.jar`,
+  check that `org-apache-calcite-jdbc.properties` is
   present and does not contain un-substituted `${...}` variables
 * Check PGP, per [this](https://httpd.apache.org/dev/verification.html)
 
 Now, remove the `-DdryRun` flag and run the release for real.
+For this step you'll have to add the [Apache servers](https://maven.apache.org/developers/committer-settings.html) to `~/.m2/settings.xml`.
 
 {% highlight bash %}
-# Prepare sets the version numbers, creates a tag, and pushes it to git.
-mvn -DdryRun=false -DskipTests -DreleaseVersion=X.Y.Z -DdevelopmentVersion=X.Y.Z+1-SNAPSHOT -Papache-release -Darguments="-Dgpg.passphrase=${GPG_PASSPHRASE}" release:prepare 2>&1 | tee /tmp/prepare.log
+# Make sure that there are no junk files in the sandbox; performing a dry run may have generated
+# redundant files that do not need to be present in the release artifacts.
+git clean -xn
+./mvnw clean
+
+# Prepare sets the version numbers, creates a tag, and pushes it to git
+# Note X.Y.Z is the current version we're trying to release, and X.Y+1.Z is the next development version.
+# For example, if I am currently building a release for 1.16.0, X.Y.Z would be 1.16.0 and X.Y+1.Z would be 1.17.0.
+./mvnw -DdryRun=false -DskipTests -DreleaseVersion=X.Y.Z -DdevelopmentVersion=X.Y+1.Z-SNAPSHOT -Papache-release -Darguments=-DskipTests release:prepare 2>&1 | tee /tmp/prepare.log
+
+# If you have multiple GPG keys, you can select the key used to sign the release by adding `-Dgpg.keyname=${GPG_KEY_ID}` to `-Darguments`:
+./mvnw -DdryRun=false -DskipTests -DreleaseVersion=X.Y.Z -DdevelopmentVersion=X.Y+1.Z-SNAPSHOT -Papache-release -Darguments="-DskipTests -Dgpg.keyname=${GPG_KEY_ID}" release:prepare 2>&1 | tee /tmp/prepare.log
 
 # Perform checks out the tagged version, builds, and deploys to the staging repository
-mvn -DskipTests -Papache-release -Darguments="-Dgpg.passphrase=${GPG_PASSPHRASE}" release:perform 2>&1 | tee /tmp/perform.log
+./mvnw -DskipTests -Papache-release release:perform 2>&1 | tee /tmp/perform.log
 {% endhighlight %}
 
 Verify the staged artifacts in the Nexus repository:
@@ -549,7 +690,6 @@ svn co https://dist.apache.org/repos/dist/dev/calcite
 popd
 
 # Move the files into a directory
-cd target
 mkdir ~/dist/dev/calcite/apache-calcite-X.Y.Z-rcN
 mv apache-calcite-* ~/dist/dev/calcite/apache-calcite-X.Y.Z-rcN
 
@@ -567,11 +707,11 @@ svn ci
 git tag
 
 # If the tag exists, delete it locally and remotely
-git tag -d apache-calcite-X.Y.Z
-git push origin :refs/tags/apache-calcite-X.Y.Z
+git tag -d calcite-X.Y.Z
+git push origin :refs/tags/calcite-X.Y.Z
 
 # Remove modified files
-mvn release:clean
+./mvnw release:clean
 
 # Check whether there are modified files and if so, go back to the
 # original git commit
@@ -582,39 +722,29 @@ git reset --hard HEAD
 ## Validate a release
 
 {% highlight bash %}
-# Check that the signing key (e.g. 2AD3FAE3) is pushed
+# Check that the signing key (e.g. DDB6E9812AD3FAE3) is pushed
 gpg --recv-keys key
 
 # Check keys
 curl -O https://dist.apache.org/repos/dist/release/calcite/KEYS
 
-# Sign/check md5 and sha1 hashes
-# (Assumes your O/S has 'md5' and 'sha1' commands.)
+# Sign/check sha256 hashes
+# (Assumes your O/S has a 'shasum' command.)
 function checkHash() {
   cd "$1"
-  for i in *.{zip,pom,gz}; do
+  for i in *.{pom,gz}; do
     if [ ! -f $i ]; then
       continue
     fi
-    if [ -f $i.md5 ]; then
-      if [ "$(cat $i.md5)" = "$(md5 -q $i)" ]; then
-        echo $i.md5 present and correct
+    if [ -f $i.sha256 ]; then
+      if [ "$(cat $i.sha256)" = "$(shasum -a 256 $i)" ]; then
+        echo $i.sha256 present and correct
       else
-        echo $i.md5 does not match
+        echo $i.sha256 does not match
       fi
     else
-      md5 -q $i > $i.md5
-      echo $i.md5 created
-    fi
-    if [ -f $i.sha1 ]; then
-      if [ "$(cat $i.sha1)" = "$(sha1 -q $i)" ]; then
-        echo $i.sha1 present and correct
-      else
-        echo $i.sha1 does not match
-      fi
-    else
-      sha1 -q $i > $i.sha1
-      echo $i.sha1 created
+      shasum -a 256 $i > $i.sha256
+      echo $i.sha256 created
     fi
   done
 }
@@ -638,7 +768,7 @@ Thanks to everyone who has contributed to this release.
 https://github.com/apache/calcite/blob/XXXX/site/_docs/history.md
 
 The commit to be voted upon:
-http://git-wip-us.apache.org/repos/asf/calcite/commit/NNNNNN
+https://gitbox.apache.org/repos/asf?p=calcite.git;a=commit;h=NNNNNN
 
 Its hash is XXXX.
 
@@ -646,10 +776,7 @@ The artifacts to be voted on are located here:
 https://dist.apache.org/repos/dist/dev/calcite/apache-calcite-X.Y.Z-rcN/
 
 The hashes of the artifacts are as follows:
-src.tar.gz.md5 XXXX
-src.tar.gz.sha1 XXXX
-src.zip.md5 XXXX
-src.zip.sha1 XXXX
+src.tar.gz.sha256 XXXX
 
 A staged Maven repository is available for review at:
 https://repository.apache.org/content/repositories/orgapachecalcite-NNNN
@@ -705,10 +832,10 @@ thread to discuss.
 Julian
 {% endhighlight %}
 
-Use the [Apache URL shortener](http://s.apache.org) to generate
+Use the [Apache URL shortener](https://s.apache.org) to generate
 shortened URLs for the vote proposal and result emails. Examples:
-[s.apache.org/calcite-1.2-vote](http://s.apache.org/calcite-1.2-vote) and
-[s.apache.org/calcite-1.2-result](http://s.apache.org/calcite-1.2-result).
+[s.apache.org/calcite-1.2-vote](https://s.apache.org/calcite-1.2-vote) and
+[s.apache.org/calcite-1.2-result](https://s.apache.org/calcite-1.2-result).
 
 
 ## Publishing a release (for Calcite committers)
@@ -720,14 +847,6 @@ Choose a release date.
 This is based on the time when you expect to announce the release.
 This is usually a day after the vote closes.
 Remember that UTC date changes at 4pm Pacific time.
-
-In JIRA, search for
-[all issues resolved in this release](https://issues.apache.org/jira/issues/?jql=project%20%3D%20CALCITE%20and%20fixVersion%20%3D%201.5.0%20and%20status%20%3D%20Resolved%20and%20resolution%20%3D%20Fixed),
-and do a bulk update changing their status to "Closed",
-with a change comment
-"Resolved in release X.Y.Z (YYYY-MM-DD)"
-(fill in release number and date appropriately).
-Uncheck "Send mail for this update".
 
 Promote the staged nexus artifacts.
 
@@ -758,7 +877,7 @@ svn ci
 
 Svnpubsub will publish to the
 [release repo](https://dist.apache.org/repos/dist/release/calcite) and propagate to the
-[mirrors](http://www.apache.org/dyn/closer.cgi/calcite) within 24 hours.
+[mirrors](https://www.apache.org/dyn/closer.cgi/calcite) within 24 hours.
 
 If there are now more than 2 releases, clear out the oldest ones:
 
@@ -769,18 +888,38 @@ svn ci
 {% endhighlight %}
 
 The old releases will remain available in the
-[release archive](http://archive.apache.org/dist/calcite/).
+[release archive](https://archive.apache.org/dist/calcite/).
 
-Add a release note by copying
-[site/_posts/2015-11-10-release-1.5.0.md]({{ site.sourceRoot }}/site/_posts/2015-11-10-release-1.5.0.md),
-generate the javadoc and copy to `site/target/apidocs` and `site/target/testapidocs`,
-[publish the site](#publish-the-web-site),
-and check that it appears in the contents in [news](http://localhost:4000/news/).
+You should receive an email from the [Apache Reporter Service](https://reporter.apache.org/).
+Make sure to add the version number and date of the latest release at the site linked to in the email.
+
+Update the site with the release note, the release announcement, and the javadoc of the new version.
+The javadoc can be generated only from a final version (not a SNAPSHOT) so checkout the most recent
+tag and start working there (`git checkout calcite-X.Y.Z`). Add a release announcement by copying
+[site/_posts/2016-10-12-release-1.10.0.md]({{ site.sourceRoot }}/site/_posts/2016-10-12-release-1.10.0.md).
+Generate the javadoc, and [preview](http://localhost:4000/news/) the site by following the
+instructions in [site/README.md]({{ site.sourceRoot }}/site/README.md). Check that the announcement,
+javadoc, and release note appear correctly and then publish the site following the instructions
+in the same file. Now checkout again the release branch (`git checkout branch-X.Y`) and commit
+the release announcement.
+
+Merge the release branch back into `master` (e.g., `git merge --ff-only branch-X.Y`) and align
+the `master` with the `site` branch (e.g., `git merge --ff-only site`).
+
+In JIRA, search for
+[all issues resolved in this release](https://issues.apache.org/jira/issues/?jql=project%20%3D%20CALCITE%20and%20fixVersion%20%3D%201.5.0%20and%20status%20%3D%20Resolved%20and%20resolution%20%3D%20Fixed),
+and do a bulk update changing their status to "Closed",
+with a change comment
+"Resolved in release X.Y.Z (YYYY-MM-DD)"
+(fill in release number and date appropriately).
+Uncheck "Send mail for this update". Under the [releases tab](https://issues.apache.org/jira/projects/CALCITE?selectedItem=com.atlassian.jira.jira-projects-plugin%3Arelease-page&status=released-unreleased)
+of the Calcite project mark the release X.Y.Z as released. If it does not already exist create also
+a new version (e.g., X.Y+1.Z) for the next release.
 
 After 24 hours, announce the release by sending an email to
 [announce@apache.org](https://mail-archives.apache.org/mod_mbox/www-announce/).
 You can use
-[the 1.6.0 announcement](https://mail-archives.apache.org/mod_mbox/www-announce/201601.mbox/%3C8DB4C1E5-B322-4A33-8E8F-9858FA6A1119%40apache.org%3E)
+[the 1.20.0 announcement](https://mail-archives.apache.org/mod_mbox/www-announce/201906.mbox/%3CCA%2BEpF8tcJcZ41rVuwJODJmyRy-qAxZUQm9OxKsoDi07c2SKs_A%40mail.gmail.com%3E)
 as a template. Be sure to include a brief description of the project.
 
 ## Publishing the web site (for Calcite committers)

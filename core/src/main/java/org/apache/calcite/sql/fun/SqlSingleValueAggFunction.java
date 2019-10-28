@@ -23,6 +23,7 @@ import org.apache.calcite.sql.SqlFunctionCategory;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.type.OperandTypes;
 import org.apache.calcite.sql.type.ReturnTypes;
+import org.apache.calcite.util.Optionality;
 
 import com.google.common.collect.ImmutableList;
 
@@ -51,16 +52,23 @@ public class SqlSingleValueAggFunction extends SqlAggFunction {
         OperandTypes.ANY,
         SqlFunctionCategory.SYSTEM,
         false,
-        false);
+        false,
+        Optionality.FORBIDDEN);
     this.type = type;
   }
 
   //~ Methods ----------------------------------------------------------------
 
+  @Override public boolean allowsFilter() {
+    return false;
+  }
+
+  @SuppressWarnings("deprecation")
   public List<RelDataType> getParameterTypes(RelDataTypeFactory typeFactory) {
     return ImmutableList.of(type);
   }
 
+  @SuppressWarnings("deprecation")
   public RelDataType getReturnType(RelDataTypeFactory typeFactory) {
     return type;
   }

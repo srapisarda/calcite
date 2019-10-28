@@ -1,6 +1,6 @@
 ---
 layout: docs
-title: Powered By Calcite
+title: Powered by Calcite
 permalink: /docs/powered_by.html
 ---
 <!--
@@ -24,9 +24,37 @@ limitations under the License.
 
 The following companies and projects are powered by Apache Calcite.
 
-*[Add your company](https://github.com/apache/calcite/blob/master/site/_docs/powered_by.md).*
+![Companies and projects]({{ site.baseurl }}/img/powered-by.png)
+
+* TOC
+{:toc}
+
+Is your company or project powered by Calcite?
+[Add it to this page](https://github.com/apache/calcite/blob/master/site/_docs/powered_by.md)
+and then use the "powered by Apache Calcite" logo
+([140 px]({{ site.baseurl }}/img/pb-calcite-140.png)
+or [240 px]({{ site.baseurl }}/img/pb-calcite-240.png))
+on your site.
+
 
 ![Powered By]({{ site.baseurl }}/img/pb-calcite-240.png)
+
+### Alibaba MaxCompute
+
+<a href="https://www.alibabacloud.com">Alibaba</a>'s
+<a href="https://www.alibabacloud.com/product/maxcompute">MaxCompute</a>
+big data computing and storage platform
+uses Calcite for cost-based query optimization.
+
+### Apache Apex
+
+<a href="https://apex.apache.org">Apache Apex</a>
+uses Calcite for parsing streaming SQL and query optimization.
+
+### Apache Beam
+
+<a href="https://beam.apache.org">Apache Beam</a>
+uses Calcite for parsing and optimizing SQL.
 
 ### Apache Drill
 
@@ -37,7 +65,7 @@ uses Calcite for SQL parsing and query optimization.
 
 <a href="https://flink.apache.org">Apache Flink</a>
 uses Calcite for parsing both regular and streaming SQL,
-and for query optimization (under development).
+and for query optimization.
 
 ### Apache Hive
 
@@ -67,10 +95,35 @@ uses Calcite for parsing streaming SQL and query optimization.
 <a href="https://storm.apache.org">Apache Storm</a>
 uses Calcite for parsing streaming SQL and query optimization.
 
+### AthenaX
+
+<a href="https://www.uber.com/">Uber</a>'s SQL-based streaming analytics platform
+<a href="https://github.com/uber/AthenaX/">AthenaX</a>
+uses Calcite for parsing SQL and query optimization.
+
 ### Cascading
 
 <a href="https://github.com/Cascading/lingual">Lingual</a>
-component provides a SQL interface to Cascading.
+component provides a SQL interface to
+<a href="https://www.cascading.org/">Cascading</a>.
+
+### Dremio
+
+<a href="https://www.dremio.com">Dremio</a>
+uses Calcite for SQL parsing and cost-based query optimization.
+
+### HerdDB
+
+<a href="https://herddb.org">HerdDB</a>
+is a distributed JVM-Embeddable Database built on top of
+<a href="https://bookkeeper.apache.org/">Apache BookKeeper</a>.
+It uses Calcite as its SQL Planner.
+
+### OmniSci
+
+<a href="https://www.omnisci.com">OmniSci</a>
+is a GPU-powered database and visual analytics platform for
+interactive exploration of large datasets.
 
 ### Qubole Quark
 
@@ -82,15 +135,5 @@ It uses Calcite to transparently rewrite queries to use materialized views.
 
 <a href="https://github.com/twilmes/sql-gremlin">SQL-Gremlin</a>
 is a SQL interface to a
-<a href="http://tinkerpop.incubator.apache.org/">Apache TinkerPop</a>-enabled
+<a href="https://tinkerpop.apache.org/">Apache TinkerPop</a>-enabled
 graph database.
-
-## Add your company
-
-Is your company or project powered by Calcite?
-[Add it to this page](https://github.com/apache/calcite/blob/master/site/_docs/powered_by.md)
-and then use the "powered by Apache Calcite" logo
-([140 px]({{ site.baseurl }}/img/pb-calcite-140.png)
-or [240 px]({{ site.baseurl }}/img/pb-calcite-240.png))
-on your site.
-

@@ -17,11 +17,10 @@
 package org.apache.calcite.rel.metadata;
 
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.util.Util;
 
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 
 import java.lang.reflect.InvocationHandler;
@@ -68,8 +67,8 @@ public class ChainedRelMetadataProvider implements RelMetadataProvider {
     return providers.hashCode();
   }
 
-  public <M extends Metadata> UnboundMetadata<M>
-  apply(Class<? extends RelNode> relClass,
+  public <M extends Metadata> UnboundMetadata<M> apply(
+      Class<? extends RelNode> relClass,
       final Class<? extends M> metadataClass) {
     final List<UnboundMetadata<M>> functions = new ArrayList<>();
     for (RelMetadataProvider provider : providers) {
@@ -86,26 +85,24 @@ public class ChainedRelMetadataProvider implements RelMetadataProvider {
     case 1:
       return functions.get(0);
     default:
-      return new UnboundMetadata<M>() {
-        public M bind(RelNode rel, RelMetadataQuery mq) {
-          final List<Metadata> metadataList = Lists.newArrayList();
-          for (UnboundMetadata<M> function : functions) {
-            final Metadata metadata = function.bind(rel, mq);
-            if (metadata != null) {
-              metadataList.add(metadata);
-            }
+      return (rel, mq) -> {
+        final List<Metadata> metadataList = new ArrayList<>();
+        for (UnboundMetadata<M> function : functions) {
+          final Metadata metadata = function.bind(rel, mq);
+          if (metadata != null) {
+            metadataList.add(metadata);
           }
-          return metadataClass.cast(
-              Proxy.newProxyInstance(metadataClass.getClassLoader(),
-                  new Class[]{metadataClass},
-                  new ChainedInvocationHandler(metadataList)));
         }
+        return metadataClass.cast(
+            Proxy.newProxyInstance(metadataClass.getClassLoader(),
+                new Class[]{metadataClass},
+                new ChainedInvocationHandler(metadataList)));
       };
     }
   }
 
-  public <M extends Metadata> Multimap<Method, MetadataHandler<M>>
-  handlers(MetadataDef<M> def) {
+  public <M extends Metadata> Multimap<Method, MetadataHandler<M>> handlers(
+      MetadataDef<M> def) {
     final ImmutableMultimap.Builder<Method, MetadataHandler<M>> builder =
         ImmutableMultimap.builder();
     for (RelMetadataProvider provider : providers.reverse()) {
@@ -124,7 +121,7 @@ public class ChainedRelMetadataProvider implements RelMetadataProvider {
   private static class ChainedInvocationHandler implements InvocationHandler {
     private final List<Metadata> metadataList;
 
-    public ChainedInvocationHandler(List<Metadata> metadataList) {
+    ChainedInvocationHandler(List<Metadata> metadataList) {
       this.metadataList = ImmutableList.copyOf(metadataList);
     }
 
@@ -140,8 +137,8 @@ public class ChainedRelMetadataProvider implements RelMetadataProvider {
           if (e.getCause() instanceof CyclicMetadataException) {
             continue;
           }
-          Throwables.propagateIfPossible(e.getCause());
-          throw e;
+          Util.throwIfUnchecked(e.getCause());
+          throw new RuntimeException(e.getCause());
         }
       }
       return null;

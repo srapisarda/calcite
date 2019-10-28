@@ -20,8 +20,7 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.metadata.CachingRelMetadataProvider;
 import org.apache.calcite.rel.metadata.RelMetadataProvider;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
-import org.apache.calcite.rex.RexBuilder;
-import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.rex.RexExecutor;
 import org.apache.calcite.util.CancelFlag;
 import org.apache.calcite.util.trace.CalciteTrace;
 
@@ -76,9 +75,15 @@ public interface RelOptPlanner {
   List<RelTraitDef> getRelTraitDefs();
 
   /**
-   * Removes all internal state, including all rules.
+   * Removes all internal state, including all registered rules,
+   * materialized views, and lattices.
    */
   void clear();
+
+  /**
+   * Returns the list of all registered rules.
+   */
+  List<RelOptRule> getRules();
 
   /**
    * Registers a rule.
@@ -122,12 +127,15 @@ public interface RelOptPlanner {
   void setRuleDescExclusionFilter(Pattern exclusionFilter);
 
   /**
-   * Installs the cancellation-checking flag for this planner. The planner
-   * should periodically check this flag and terminate the planning process if
-   * it sees a cancellation request.
+   * Does nothing.
+   *
+   * @deprecated Previously, this method installed the cancellation-checking
+   * flag for this planner, but is now deprecated. Now, you should add a
+   * {@link CancelFlag} to the {@link Context} passed to the constructor.
    *
    * @param cancelFlag flag which the planner should periodically check
    */
+  @Deprecated // to be removed before 2.0
   void setCancelFlag(CancelFlag cancelFlag);
 
   /**
@@ -162,6 +170,11 @@ public interface RelOptPlanner {
    * instead.</p>
    */
   void addMaterialization(RelOptMaterialization materialization);
+
+  /**
+   * Returns the materializations that have been registered with the planner.
+   */
+  List<RelOptMaterialization> getMaterializations();
 
   /**
    * Defines a lattice.
@@ -317,21 +330,17 @@ public interface RelOptPlanner {
   RelTraitSet emptyTraitSet();
 
   /** Sets the object that can execute scalar expressions. */
-  void setExecutor(Executor executor);
+  void setExecutor(RexExecutor executor);
 
   /** Returns the executor used to evaluate constant expressions. */
-  Executor getExecutor();
+  RexExecutor getExecutor();
 
   /** Called when a relational expression is copied to a similar expression. */
   void onCopy(RelNode rel, RelNode newRel);
 
-  /** Can reduce expressions, writing a literal for each into a list. */
-  interface Executor {
-    /**
-     * Reduces expressions, and writes their results into {@code reducedValues}.
-     */
-    void reduce(RexBuilder rexBuilder, List<RexNode> constExps,
-        List<RexNode> reducedValues);
+  /** @deprecated Use {@link RexExecutor} */
+  @Deprecated // to be removed before 2.0
+  interface Executor extends RexExecutor {
   }
 
   /**

@@ -22,13 +22,13 @@ limitations under the License.
 {% endcomment %}
 -->
 
-[Druid](http://druid.io/) is a fast column-oriented distributed data
+[Druid](https://druid.io/) is a fast column-oriented distributed data
 store. It allows you to execute queries via a
-[JSON-based query language](http://druid.io/docs/0.9.0/querying/querying.html),
+[JSON-based query language](https://druid.io/docs/0.9.2/querying/querying.html),
 in particular OLAP-style queries.
 Druid can be loaded in batch mode or continuously; one of Druid's key
 differentiators is its ability to
-[load from a streaming source such as Kafka](http://druid.io/docs/0.9.0/ingestion/stream-ingestion.html)
+[load from a streaming source such as Kafka](https://druid.io/docs/0.9.2/ingestion/stream-ingestion.html)
 and have the data available for query within milliseconds.
 
 Calcite's Druid adapter allows you to query the data using SQL,
@@ -61,7 +61,10 @@ A basic example of a model file is given below:
           "operand": {
             "dataSource": "wikiticker",
             "interval": "1900-01-09T00:00:00.000Z/2992-01-10T00:00:00.000Z",
-            "timestampColumn": "time",
+            "timestampColumn": {
+              "name": "time",
+              "type": "timestamp"
+            },
             "dimensions": [
               "channel",
               "cityName",
@@ -78,7 +81,6 @@ A basic example of a model file is given below:
               "page",
               "regionIsoCode",
               "regionName",
-              "user"
             ],
             "metrics": [
               {
@@ -103,8 +105,11 @@ A basic example of a model file is given below:
               {
                 "name" : "user_unique",
                 "type" : "hyperUnique",
-                "fieldName" : "user"
+                "fieldName" : "user_id"
               }
+            ],
+            "complexMetrics" : [
+              "user_id"
             ]
           }
         }
@@ -140,7 +145,7 @@ sqlline>
 {% endhighlight %}
 
 That query shows the top 5 countries of origin of wiki page edits
-on 2015-09-12 (the date covered by the wikiticker data set).
+on 2015-09-12 (the date covered by the `wikiticker` data set).
 
 Now let's see how the query was evaluated:
 
@@ -165,6 +170,18 @@ part of the query to Druid, including the `COUNT(*)` function,
 but not the `ORDER BY ... LIMIT`. (We plan to lift this restriction;
 see [[CALCITE-1206](https://issues.apache.org/jira/browse/CALCITE-1206)].)
 
+# Complex Metrics
+Druid has special metrics that produce quick but approximate results.
+Currently there are two types:
+
+* `hyperUnique` - HyperLogLog data sketch used to estimate the cardinality of a dimension
+* `thetaSketch` - Theta sketch used to also estimate the cardinality of a dimension,
+  but can be used to perform set operations as well.
+
+In the model definition, there is an array of Strings called `complexMetrics` that declares
+the alias for each complex metric defined. The alias is used in SQL, but it's real column name
+is used when Calcite generates the JSON query for druid.
+
 # Foodmart data set
 
 The test VM also includes a data set that denormalizes
@@ -173,3 +190,103 @@ into a single Druid data set called "foodmart".
 
 You can access it via the
 `druid/src/test/resources/druid-foodmart-model.json` model.
+
+# Simplifying the model
+
+If less metadata is provided in the model, the Druid adapter can discover
+it automatically from Druid. Here is a schema equivalent to the previous one
+but with `dimensions`, `metrics` and `timestampColumn` removed:
+
+{% highlight json %}
+{
+  "version": "1.0",
+  "defaultSchema": "wiki",
+  "schemas": [
+    {
+      "type": "custom",
+      "name": "wiki",
+      "factory": "org.apache.calcite.adapter.druid.DruidSchemaFactory",
+      "operand": {
+        "url": "http://localhost:8082",
+        "coordinatorUrl": "http://localhost:8081"
+      },
+      "tables": [
+        {
+          "name": "wiki",
+          "factory": "org.apache.calcite.adapter.druid.DruidTableFactory",
+          "operand": {
+            "dataSource": "wikiticker",
+            "interval": "1900-01-09T00:00:00.000Z/2992-01-10T00:00:00.000Z"
+          }
+        }
+      ]
+    }
+  ]
+}
+{% endhighlight %}
+
+Calcite dispatches a
+[segmentMetadataQuery](https://druid.io/docs/latest/querying/segmentmetadataquery.html)
+to Druid to discover the columns of the table.
+Now, let's take out the `tables` element:
+
+{% highlight json %}
+{
+  "version": "1.0",
+  "defaultSchema": "wiki",
+  "schemas": [
+    {
+      "type": "custom",
+      "name": "wiki",
+      "factory": "org.apache.calcite.adapter.druid.DruidSchemaFactory",
+      "operand": {
+        "url": "http://localhost:8082",
+        "coordinatorUrl": "http://localhost:8081"
+      }
+    }
+  ]
+}
+{% endhighlight %}
+
+Calcite discovers the "wikiticker" data source via the
+[/druid/coordinator/v1/metadata/datasources](https://druid.io/docs/latest/design/coordinator.html#metadata-store-information)
+REST call. Now that the "wiki" table element is removed, the table is called
+"wikiticker". Any other data sources present in Druid will also appear as
+tables.
+
+Our model is now a single schema based on a custom schema factory with only two
+operands, so we can
+[dispense with the model](https://issues.apache.org/jira/browse/CALCITE-1206)
+and supply the operands as part of the connect string:
+
+{% highlight bash %}
+  jdbc:calcite:schemaFactory=org.apache.calcite.adapter.druid.DruidSchemaFactory; schema.url=http://localhost:8082; schema.coordinatorUrl=http://localhost:8081
+{% endhighlight %}
+
+In fact, those are the
+[default values of the operands]({{ site.apiRoot }}/org/apache/calcite/adapter/druid/DruidSchemaFactory.html),
+so we can omit them:
+
+{% highlight bash %}
+  jdbc:calcite:schemaFactory=org.apache.calcite.adapter.druid.DruidSchemaFactory
+{% endhighlight %}
+
+Now, we can connect to `sqlline` using a very simple connect string, and list
+the available tables:
+
+{% highlight bash %}
+$ ./sqlline
+sqlline> !connect jdbc:calcite:schemaFactory=org.apache.calcite.adapter.druid.DruidSchemaFactory admin admin
+sqlline> !tables
++-----------+-------------+------------+--------------+
+| TABLE_CAT | TABLE_SCHEM | TABLE_NAME | TABLE_TYPE   |
++-----------+-------------+------------+--------------+
+|           | adhoc       | foodmart   | TABLE        |
+|           | adhoc       | wikiticker | TABLE        |
+|           | metadata    | COLUMNS    | SYSTEM_TABLE |
+|           | metadata    | TABLES     | SYSTEM_TABLE |
++-----------+-------------+------------+--------------+
+{% endhighlight %}
+
+We see the two system tables (`TABLES` and `COLUMNS`),
+and the two tables in Druid (`foodmart` and `wikiticker`).

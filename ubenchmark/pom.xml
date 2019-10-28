@@ -20,7 +20,7 @@ limitations under the License.
   <parent>
     <groupId>org.apache.calcite</groupId>
     <artifactId>calcite</artifactId>
-    <version>1.9.0-SNAPSHOT</version>
+    <version>1.22.0-SNAPSHOT</version>
   </parent>
 
   <properties>
@@ -31,19 +31,27 @@ limitations under the License.
   <name>Calcite Ubenchmark</name>
   <description>Microbenchmarks for Calcite</description>
 
-  <repositories>
-    <repository>
-      <id>maven-central</id>
-      <url>http://repo1.maven.org/maven2</url>
-    </repository>
-  </repositories>
-
   <dependencies>
     <!-- Sorted by groupId, artifactId; calcite dependencies first. Put versions
          in dependencyManagement in the root POM, not here. -->
     <dependency>
       <groupId>org.apache.calcite</groupId>
       <artifactId>calcite-core</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.apache.calcite</groupId>
+      <artifactId>calcite-linq4j</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.codehaus.janino</groupId>
+      <artifactId>commons-compiler</artifactId>
     </dependency>
 
     <dependency>
@@ -54,10 +62,6 @@ limitations under the License.
       <groupId>org.openjdk.jmh</groupId>
       <artifactId>jmh-generator-annprocess</artifactId>
       <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>com.google.guava</groupId>
-      <artifactId>guava</artifactId>
     </dependency>
   </dependencies>
 
@@ -78,13 +82,6 @@ limitations under the License.
             <phase>validate</phase>
           </execution>
         </executions>
-      </plugin>
-      <plugin>
-        <artifactId>maven-compiler-plugin</artifactId>
-        <configuration>
-          <source>1.6</source>
-          <target>1.6</target>
-        </configuration>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -142,6 +139,15 @@ limitations under the License.
                 <ignoredUnusedDeclaredDependency>org.openjdk.jmh:jmh-generator-annprocess</ignoredUnusedDeclaredDependency>
               </ignoredUnusedDeclaredDependencies>
             </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.owasp</groupId>
+        <artifactId>dependency-check-maven</artifactId>
+        <executions>
+          <execution>
+            <phase>none</phase>
           </execution>
         </executions>
       </plugin>

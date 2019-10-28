@@ -22,6 +22,7 @@ import org.apache.calcite.sql.SqlFunctionCategory;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.type.OperandTypes;
 import org.apache.calcite.sql.type.ReturnTypes;
+import org.apache.calcite.util.Optionality;
 
 import com.google.common.base.Preconditions;
 
@@ -32,26 +33,29 @@ import com.google.common.base.Preconditions;
  * double</code>), and the result is the same type.
  */
 public class SqlAvgAggFunction extends SqlAggFunction {
+
   //~ Constructors -----------------------------------------------------------
 
   /**
    * Creates a SqlAvgAggFunction.
    */
   public SqlAvgAggFunction(SqlKind kind) {
-    super(kind.name(),
+    this(kind.name(), kind);
+  }
+
+  SqlAvgAggFunction(String name, SqlKind kind) {
+    super(name,
         null,
         kind,
-        ReturnTypes.ARG0_NULLABLE_IF_EMPTY,
+        ReturnTypes.AVG_AGG_FUNCTION,
         null,
         OperandTypes.NUMERIC,
         SqlFunctionCategory.NUMERIC,
         false,
-        false);
-    Preconditions.checkArgument(kind == SqlKind.AVG
-        || kind == SqlKind.STDDEV_POP
-        || kind == SqlKind.STDDEV_SAMP
-        || kind == SqlKind.VAR_POP
-        || kind == SqlKind.VAR_SAMP);
+        false,
+        Optionality.FORBIDDEN);
+    Preconditions.checkArgument(SqlKind.AVG_AGG_FUNCTIONS.contains(kind),
+        "unsupported sql kind");
   }
 
   @Deprecated // to be removed before 2.0

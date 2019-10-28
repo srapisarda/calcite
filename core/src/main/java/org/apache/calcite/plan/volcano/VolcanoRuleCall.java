@@ -19,10 +19,8 @@ package org.apache.calcite.plan.volcano;
 import org.apache.calcite.plan.RelOptListener;
 import org.apache.calcite.plan.RelOptRuleCall;
 import org.apache.calcite.plan.RelOptRuleOperand;
-import org.apache.calcite.plan.RelTraitPropagationVisitor;
-import org.apache.calcite.plan.RelTraitSet;
+import org.apache.calcite.plan.RelOptRuleOperandChildPolicy;
 import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.util.Util;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -31,8 +29,10 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * <code>VolcanoRuleCall</code> implements the {@link RelOptRuleCall} interface
@@ -81,7 +81,7 @@ public class VolcanoRuleCall extends RelOptRuleCall {
         planner,
         operand,
         new RelNode[operand.getRule().operands.size()],
-        ImmutableMap.<RelNode, List<RelNode>>of());
+        ImmutableMap.of());
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -99,13 +99,6 @@ public class VolcanoRuleCall extends RelOptRuleCall {
       // It's possible that rel is a subset or is already registered.
       // Is there still a point in continuing? Yes, because we might
       // discover that two sets of expressions are actually equivalent.
-
-      // Make sure traits that the new rel doesn't know about are
-      // propagated.
-      RelTraitSet rels0Traits = rels[0].getTraitSet();
-      new RelTraitPropagationVisitor(
-          getPlanner(),
-          rels0Traits).go(rel);
 
       if (LOGGER.isTraceEnabled()) {
         // Cannot call RelNode.toString() yet, because rel has not
@@ -134,6 +127,7 @@ public class VolcanoRuleCall extends RelOptRuleCall {
             entry.getKey(), entry.getValue(), this);
       }
       volcanoPlanner.ensureRegistered(rel, rels[0], this);
+      rels[0].getCluster().invalidateMetadataQuery();
 
       if (volcanoPlanner.listener != null) {
         RelOptListener.RuleProductionEvent event =
@@ -144,10 +138,9 @@ public class VolcanoRuleCall extends RelOptRuleCall {
                 false);
         volcanoPlanner.listener.ruleProductionSucceeded(event);
       }
-    } catch (Throwable e) {
-      throw Util.newInternal(
-          e,
-          "Error occurred while applying rule " + getRule());
+    } catch (Exception e) {
+      throw new RuntimeException("Error occurred while applying rule "
+          + getRule(), e);
     }
   }
 
@@ -210,7 +203,12 @@ public class VolcanoRuleCall extends RelOptRuleCall {
         this.generatedRelList = new ArrayList<>();
       }
 
-      getRule().onMatch(this);
+      volcanoPlanner.ruleCallStack.push(this);
+      try {
+        getRule().onMatch(this);
+      } finally {
+        volcanoPlanner.ruleCallStack.pop();
+      }
 
       if (LOGGER.isDebugEnabled()) {
         if (generatedRelList.isEmpty()) {
@@ -232,20 +230,17 @@ public class VolcanoRuleCall extends RelOptRuleCall {
                 false);
         volcanoPlanner.listener.ruleAttempted(event);
       }
-    } catch (Throwable e) {
-      throw Util.newInternal(e,
-          "Error while applying rule "
-          + getRule() + ", args " + Arrays.toString(rels));
+    } catch (Exception e) {
+      throw new RuntimeException("Error while applying rule " + getRule()
+          + ", args " + Arrays.toString(rels), e);
     }
   }
 
   /**
-   * Applies this rule, with a given relexp in the first slot.
-   *
-   * @pre operand0.matches(rel)
+   * Applies this rule, with a given relational expression in the first slot.
    */
   void match(RelNode rel) {
-    assert getOperand0().matches(rel);
+    assert getOperand0().matches(rel) : "precondition";
     final int solve = 0;
     int operandOrdinal = getOperand0().solveOrder[solve];
     this.rels[operandOrdinal] = rel;
@@ -255,11 +250,11 @@ public class VolcanoRuleCall extends RelOptRuleCall {
   /**
    * Recursively matches operands above a given solve order.
    *
-   * @param solve Solver order of operand
-   * @pre solve &gt; 0
-   * @pre solve &lt;= rule.operands.length
+   * @param solve Solve order of operand (&gt; 0 and &le; the operand count)
    */
   private void matchRecurse(int solve) {
+    assert solve > 0;
+    assert solve <= rule.operands.size();
     final List<RelOptRuleOperand> operands = getRule().operands;
     if (solve == operands.size()) {
       // We have matched all operands. Now ask the rule whether it
@@ -289,11 +284,38 @@ public class VolcanoRuleCall extends RelOptRuleCall {
         final int parentOrdinal = operand.getParent().ordinalInRule;
         final RelNode parentRel = rels[parentOrdinal];
         final List<RelNode> inputs = parentRel.getInputs();
-        if (operand.ordinalInParent < inputs.size()) {
+        // if the child is unordered, then add all rels in all input subsets to the successors list
+        // because unordered can match child in any ordinal
+        if (parentOperand.childPolicy == RelOptRuleOperandChildPolicy.UNORDERED) {
+          if (operand.getMatchedClass() == RelSubset.class) {
+            successors = inputs;
+          } else {
+            List<RelNode> allRelsInAllSubsets = new ArrayList<>();
+            Set<RelNode> duplicates = new HashSet<>();
+            for (RelNode input : inputs) {
+              if (!duplicates.add(input)) {
+                // Ignore duplicate subsets
+                continue;
+              }
+              RelSubset inputSubset = (RelSubset) input;
+              for (RelNode rel : inputSubset.getRels()) {
+                if (!duplicates.add(rel)) {
+                  // Ignore duplicate relations
+                  continue;
+                }
+                allRelsInAllSubsets.add(rel);
+              }
+            }
+            successors = allRelsInAllSubsets;
+          }
+        } else if (operand.ordinalInParent < inputs.size()) {
+          // child policy is not unordered
+          // we need to find the exact input node based on child operand's ordinalInParent
           final RelSubset subset =
               (RelSubset) inputs.get(operand.ordinalInParent);
           if (operand.getMatchedClass() == RelSubset.class) {
-            successors = subset.set.subsets;
+            // If the rule wants the whole subset, we just provide it
+            successors = ImmutableList.of(subset);
           } else {
             successors = subset.getRelList();
           }
@@ -308,12 +330,15 @@ public class VolcanoRuleCall extends RelOptRuleCall {
         if (!operand.matches(rel)) {
           continue;
         }
-        if (ascending) {
+        if (ascending && operand.childPolicy != RelOptRuleOperandChildPolicy.UNORDERED) {
           // We know that the previous operand was *a* child of its parent,
           // but now check that it is the *correct* child.
+          if (previousOperand.ordinalInParent >= rel.getInputs().size()) {
+            continue;
+          }
           final RelSubset input =
               (RelSubset) rel.getInput(previousOperand.ordinalInParent);
-          List<RelNode> inputRels = input.set.getRelsFromAllSubsets();
+          List<RelNode> inputRels = input.getRelList();
           if (!inputRels.contains(previous)) {
             continue;
           }
@@ -322,6 +347,11 @@ public class VolcanoRuleCall extends RelOptRuleCall {
         // Assign "childRels" if the operand is UNORDERED.
         switch (parentOperand.childPolicy) {
         case UNORDERED:
+          // Note: below is ill-defined. Suppose there's a union with 3 inputs,
+          // and the rule is written as Union.class, unordered(...)
+          // What should be provided for the rest 2 arguments?
+          // RelSubsets? Random relations from those subsets?
+          // For now, Calcite code does not use getChildRels, so the bug is just waiting its day
           if (ascending) {
             final List<RelNode> inputs = Lists.newArrayList(rel.getInputs());
             inputs.set(previousOperand.ordinalInParent, previous);

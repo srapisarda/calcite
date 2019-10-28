@@ -31,6 +31,21 @@ public interface CalciteResource {
   @BaseMessage("line {0,number,#}, column {1,number,#}")
   Inst parserContext(int a0, int a1);
 
+  @BaseMessage("Bang equal ''!='' is not allowed under the current SQL conformance level")
+  ExInst<CalciteException> bangEqualNotAllowed();
+
+  @BaseMessage("Percent remainder ''%'' is not allowed under the current SQL conformance level")
+  ExInst<CalciteException> percentRemainderNotAllowed();
+
+  @BaseMessage("''LIMIT start, count'' is not allowed under the current SQL conformance level")
+  ExInst<CalciteException> limitStartCountNotAllowed();
+
+  @BaseMessage("APPLY operator is not allowed under the current SQL conformance level")
+  ExInst<CalciteException> applyNotAllowed();
+
+  @BaseMessage("JSON path expression must be specified after the JSON value expression")
+  ExInst<CalciteException> jsonPathMustBeSpecified();
+
   @BaseMessage("Illegal {0} literal {1}: {2}")
   ExInst<CalciteException> illegalLiteral(String a0, String a1, String a2);
 
@@ -42,6 +57,9 @@ public interface CalciteResource {
 
   @BaseMessage("BETWEEN operator has no terminating AND")
   ExInst<SqlValidatorException> betweenWithoutAnd();
+
+  @BaseMessage("Geo-spatial extensions and the GEOMETRY data type are not enabled")
+  ExInst<SqlValidatorException> geometryDisabled();
 
   @BaseMessage("Illegal INTERVAL literal {0}; at {1}")
   @Property(name = "SQLSTATE", value = "42000")
@@ -74,9 +92,15 @@ public interface CalciteResource {
   @BaseMessage("ROW expression encountered in illegal context")
   ExInst<CalciteException> illegalRowExpression();
 
+  @BaseMessage("Illegal identifier '':''. Was expecting ''VALUE''")
+  ExInst<CalciteException> illegalColon();
+
   @BaseMessage("TABLESAMPLE percentage must be between 0 and 100, inclusive")
   @Property(name = "SQLSTATE", value = "2202H")
   ExInst<CalciteException> invalidSampleSize();
+
+  @BaseMessage("Literal ''{0}'' can not be parsed to type ''{1}''")
+  ExInst<CalciteException> invalidLiteral(String a0, String a1);
 
   @BaseMessage("Unknown character set ''{0}''")
   ExInst<CalciteException> unknownCharacterSet(String a0);
@@ -145,6 +169,9 @@ public interface CalciteResource {
   @BaseMessage("Number of INSERT target columns ({0,number}) does not equal number of source items ({1,number})")
   ExInst<SqlValidatorException> unmatchInsertColumn(int a0, int a1);
 
+  @BaseMessage("Column ''{0}'' has no default value and does not allow NULLs")
+  ExInst<SqlValidatorException> columnNotNullable(String a0);
+
   @BaseMessage("Cannot assign to target field ''{0}'' of type {1} from source field ''{2}'' of type {3}")
   ExInst<SqlValidatorException> typeNotAssignable(String a0, String a1,
       String a2, String a3);
@@ -152,14 +179,43 @@ public interface CalciteResource {
   @BaseMessage("Table ''{0}'' not found")
   ExInst<SqlValidatorException> tableNameNotFound(String a0);
 
+  @BaseMessage("Table ''{0}'' not found; did you mean ''{1}''?")
+  ExInst<SqlValidatorException> tableNameNotFoundDidYouMean(String a0,
+      String a1);
+
+  /** Same message as {@link #tableNameNotFound(String)} but a different kind
+   * of exception, so it can be used in {@code RelBuilder}. */
+  @BaseMessage("Table ''{0}'' not found")
+  ExInst<CalciteException> tableNotFound(String tableName);
+
+  @BaseMessage("Object ''{0}'' not found")
+  ExInst<SqlValidatorException> objectNotFound(String a0);
+
+  @BaseMessage("Object ''{0}'' not found within ''{1}''")
+  ExInst<SqlValidatorException> objectNotFoundWithin(String a0, String a1);
+
+  @BaseMessage("Object ''{0}'' not found; did you mean ''{1}''?")
+  ExInst<SqlValidatorException> objectNotFoundDidYouMean(String a0, String a1);
+
+  @BaseMessage("Object ''{0}'' not found within ''{1}''; did you mean ''{2}''?")
+  ExInst<SqlValidatorException> objectNotFoundWithinDidYouMean(String a0,
+      String a1, String a2);
+
   @BaseMessage("Table ''{0}'' is not a sequence")
   ExInst<SqlValidatorException> notASequence(String a0);
 
   @BaseMessage("Column ''{0}'' not found in any table")
   ExInst<SqlValidatorException> columnNotFound(String a0);
 
+  @BaseMessage("Column ''{0}'' not found in any table; did you mean ''{1}''?")
+  ExInst<SqlValidatorException> columnNotFoundDidYouMean(String a0, String a1);
+
   @BaseMessage("Column ''{0}'' not found in table ''{1}''")
   ExInst<SqlValidatorException> columnNotFoundInTable(String a0, String a1);
+
+  @BaseMessage("Column ''{0}'' not found in table ''{1}''; did you mean ''{2}''?")
+  ExInst<SqlValidatorException> columnNotFoundInTableDidYouMean(String a0,
+      String a1, String a2);
 
   @BaseMessage("Column ''{0}'' is ambiguous")
   ExInst<SqlValidatorException> columnAmbiguous(String a0);
@@ -176,6 +232,9 @@ public interface CalciteResource {
 
   @BaseMessage("Expected a boolean type")
   ExInst<SqlValidatorException> expectedBoolean();
+
+  @BaseMessage("Expected a character type")
+  ExInst<SqlValidatorException> expectedCharacter();
 
   @BaseMessage("ELSE clause or at least one THEN clause must be non-NULL")
   ExInst<SqlValidatorException> mustNotNullInElse();
@@ -252,6 +311,9 @@ public interface CalciteResource {
   @BaseMessage("Window ''{0}'' not found")
   ExInst<SqlValidatorException> windowNotFound(String a0);
 
+  @BaseMessage("Cannot specify IGNORE NULLS or RESPECT NULLS following ''{0}''")
+  ExInst<SqlValidatorException> disallowsNullTreatment(String a0);
+
   @BaseMessage("Expression ''{0}'' is not being grouped")
   ExInst<SqlValidatorException> notGroupExpr(String a0);
 
@@ -273,14 +335,20 @@ public interface CalciteResource {
   @BaseMessage("Windowed aggregate expression is illegal in {0} clause")
   ExInst<SqlValidatorException> windowedAggregateIllegalInClause(String a0);
 
-  @BaseMessage("Aggregate expression is illegal in GROUP BY clause")
-  ExInst<SqlValidatorException> aggregateIllegalInGroupBy();
-
   @BaseMessage("Aggregate expressions cannot be nested")
   ExInst<SqlValidatorException> nestedAggIllegal();
 
   @BaseMessage("FILTER must not contain aggregate expression")
   ExInst<SqlValidatorException> aggregateInFilterIllegal();
+
+  @BaseMessage("WITHIN GROUP must not contain aggregate expression")
+  ExInst<SqlValidatorException> aggregateInWithinGroupIllegal();
+
+  @BaseMessage("Aggregate expression ''{0}'' must contain a within group clause")
+  ExInst<SqlValidatorException> aggregateMissingWithinGroupClause(String a0);
+
+  @BaseMessage("Aggregate expression ''{0}'' must not contain a within group clause")
+  ExInst<SqlValidatorException> withinGroupClauseIllegalInAggregate(String a0);
 
   @BaseMessage("Aggregate expression is illegal in ORDER BY clause of non-aggregating SELECT")
   ExInst<SqlValidatorException> aggregateIllegalInOrderBy();
@@ -392,6 +460,9 @@ public interface CalciteResource {
   @BaseMessage("DISTINCT/ALL not allowed with {0} function")
   ExInst<SqlValidatorException> functionQuantifierNotAllowed(String a0);
 
+  @BaseMessage("WITHIN GROUP not allowed with {0} function")
+  ExInst<SqlValidatorException> withinGroupNotAllowed(String a0);
+
   @BaseMessage("Some but not all arguments are named")
   ExInst<SqlValidatorException> someButNotAllArgumentsAreNamed();
 
@@ -401,14 +472,17 @@ public interface CalciteResource {
   @BaseMessage("DEFAULT is only allowed for optional parameters")
   ExInst<SqlValidatorException> defaultForOptionalParameter();
 
+  @BaseMessage("DEFAULT not allowed here")
+  ExInst<SqlValidatorException> defaultNotAllowed();
+
   @BaseMessage("Not allowed to perform {0} on {1}")
   ExInst<SqlValidatorException> accessNotAllowed(String a0, String a1);
 
   @BaseMessage("The {0} function does not support the {1} data type.")
   ExInst<SqlValidatorException> minMaxBadType(String a0, String a1);
 
-  @BaseMessage("Only scalar subqueries allowed in select list.")
-  ExInst<SqlValidatorException> onlyScalarSubqueryAllowed();
+  @BaseMessage("Only scalar sub-queries allowed in select list.")
+  ExInst<SqlValidatorException> onlyScalarSubQueryAllowed();
 
   @BaseMessage("Ordinal out of range")
   ExInst<SqlValidatorException> orderByOrdinalOutOfRange();
@@ -477,14 +551,17 @@ public interface CalciteResource {
   @BaseMessage("''{0}'' is not a valid datetime format")
   ExInst<CalciteException> invalidDatetimeFormat(String a0);
 
-  @BaseMessage("Cannot explicitly insert value into IDENTITY column ''{0}'' which is ALWAYS GENERATED")
-  ExInst<CalciteException> insertIntoAlwaysGenerated(String a0);
+  @BaseMessage("Cannot INSERT into generated column ''{0}''")
+  ExInst<SqlValidatorException> insertIntoAlwaysGenerated(String a0);
 
   @BaseMessage("Argument to function ''{0}'' must have a scale of 0")
   ExInst<CalciteException> argumentMustHaveScaleZero(String a0);
 
   @BaseMessage("Statement preparation aborted")
   ExInst<CalciteException> preparationAborted();
+
+  @BaseMessage("Warning: use of non-standard feature ''{0}''")
+  ExInst<CalciteException> nonStandardFeatureUsed(String feature);
 
   @BaseMessage("SELECT DISTINCT not supported")
   @Property(name = "FeatureDefinition", value = "SQL:2003 Part 2 Annex F")
@@ -520,8 +597,7 @@ public interface CalciteResource {
 
   @BaseMessage("Execution of a new autocommit statement while a cursor is still open on same connection is not supported")
   @Property(name = "FeatureDefinition", value = "Eigenbase-defined")
-  ExInst<CalciteException>
-  sQLConformance_MultipleActiveAutocommitStatements();
+  ExInst<CalciteException> sQLConformance_MultipleActiveAutocommitStatements();
 
   @BaseMessage("Descending sort (ORDER BY DESC) not supported")
   @Property(name = "FeatureDefinition", value = "Eigenbase-defined")
@@ -595,8 +671,14 @@ public interface CalciteResource {
   @BaseMessage("Cannot stream VALUES")
   ExInst<SqlValidatorException> cannotStreamValues();
 
+  @BaseMessage("Cannot resolve ''{0}''; it references view ''{1}'', whose definition is cyclic")
+  ExInst<SqlValidatorException> cyclicDefinition(String id, String view);
+
   @BaseMessage("Modifiable view must be based on a single table")
   ExInst<SqlValidatorException> modifiableViewMustBeBasedOnSingleTable();
+
+  @BaseMessage("Modifiable view must be predicated only on equality expressions")
+  ExInst<SqlValidatorException> modifiableViewMustHaveOnlyEqualityPredicates();
 
   @BaseMessage("View is not modifiable. More than one expression maps to column ''{0}'' of base table ''{1}''")
   ExInst<SqlValidatorException> moreThanOneMappedColumn(String columnName, String tableName);
@@ -604,8 +686,11 @@ public interface CalciteResource {
   @BaseMessage("View is not modifiable. No value is supplied for NOT NULL column ''{0}'' of base table ''{1}''")
   ExInst<SqlValidatorException> noValueSuppliedForViewColumn(String columnName, String tableName);
 
-  @BaseMessage("Table ''{0}'' not found")
-  ExInst<CalciteException> tableNotFound(String tableName);
+  @BaseMessage("Modifiable view constraint is not satisfied for column ''{0}'' of base table ''{1}''")
+  ExInst<SqlValidatorException> viewConstraintNotSatisfied(String columnName, String tableName);
+
+  @BaseMessage("Not a record type. The ''*'' operator requires a record")
+  ExInst<SqlValidatorException> starRequiresRecordType();
 
   @BaseMessage("FILTER expression must be of type BOOLEAN")
   ExInst<CalciteException> filterMustBeBoolean();
@@ -613,8 +698,208 @@ public interface CalciteResource {
   @BaseMessage("Cannot stream results of a query with no streaming inputs: ''{0}''. At least one input should be convertible to a stream")
   ExInst<SqlValidatorException> cannotStreamResultsForNonStreamingInputs(String inputs);
 
+  @BaseMessage("MINUS is not allowed under the current SQL conformance level")
+  ExInst<CalciteException> minusNotAllowed();
+
   @BaseMessage("SELECT must have a FROM clause")
   ExInst<SqlValidatorException> selectMissingFrom();
+
+  @BaseMessage("Group function ''{0}'' can only appear in GROUP BY clause")
+  ExInst<SqlValidatorException> groupFunctionMustAppearInGroupByClause(String funcName);
+
+  @BaseMessage("Call to auxiliary group function ''{0}'' must have matching call to group function ''{1}'' in GROUP BY clause")
+  ExInst<SqlValidatorException> auxiliaryWithoutMatchingGroupCall(String func1, String func2);
+
+  @BaseMessage("Pattern variable ''{0}'' has already been defined")
+  ExInst<SqlValidatorException> patternVarAlreadyDefined(String varName);
+
+  @BaseMessage("Cannot use PREV/NEXT in MEASURE ''{0}''")
+  ExInst<SqlValidatorException> patternPrevFunctionInMeasure(String call);
+
+  @BaseMessage("Cannot nest PREV/NEXT under LAST/FIRST ''{0}''")
+  ExInst<SqlValidatorException> patternPrevFunctionOrder(String call);
+
+  @BaseMessage("Cannot use aggregation in navigation ''{0}''")
+  ExInst<SqlValidatorException> patternAggregationInNavigation(String call);
+
+  @BaseMessage("Invalid number of parameters to COUNT method")
+  ExInst<SqlValidatorException> patternCountFunctionArg();
+
+  @BaseMessage("The system time period specification expects Timestamp type but is ''{0}''")
+  ExInst<SqlValidatorException> illegalExpressionForTemporal(String type);
+
+  @BaseMessage("Table ''{0}'' is not a temporal table, can not be queried in system time period specification")
+  ExInst<SqlValidatorException> notTemporalTable(String tableName);
+
+  @BaseMessage("Cannot use RUNNING/FINAL in DEFINE ''{0}''")
+  ExInst<SqlValidatorException> patternRunningFunctionInDefine(String call);
+
+  @BaseMessage("Multiple pattern variables in ''{0}''")
+  ExInst<SqlValidatorException> patternFunctionVariableCheck(String call);
+
+  @BaseMessage("Function ''{0}'' can only be used in MATCH_RECOGNIZE")
+  ExInst<SqlValidatorException> functionMatchRecognizeOnly(String call);
+
+  @BaseMessage("Null parameters in ''{0}''")
+  ExInst<SqlValidatorException> patternFunctionNullCheck(String call);
+
+  @BaseMessage("Unknown pattern ''{0}''")
+  ExInst<SqlValidatorException> unknownPattern(String call);
+
+  @BaseMessage("Interval must be non-negative ''{0}''")
+  ExInst<SqlValidatorException> intervalMustBeNonNegative(String call);
+
+  @BaseMessage("Must contain an ORDER BY clause when WITHIN is used")
+  ExInst<SqlValidatorException> cannotUseWithinWithoutOrderBy();
+
+  @BaseMessage("First column of ORDER BY must be of type TIMESTAMP")
+  ExInst<SqlValidatorException> firstColumnOfOrderByMustBeTimestamp();
+
+  @BaseMessage("Extended columns not allowed under the current SQL conformance level")
+  ExInst<SqlValidatorException> extendNotAllowed();
+
+  @BaseMessage("Rolled up column ''{0}'' is not allowed in {1}")
+  ExInst<SqlValidatorException> rolledUpNotAllowed(String column, String context);
+
+  @BaseMessage("Schema ''{0}'' already exists")
+  ExInst<SqlValidatorException> schemaExists(String name);
+
+  @BaseMessage("Invalid schema type ''{0}''; valid values: {1}")
+  ExInst<SqlValidatorException> schemaInvalidType(String type, String values);
+
+  @BaseMessage("Table ''{0}'' already exists")
+  ExInst<SqlValidatorException> tableExists(String name);
+
+  // If CREATE TABLE does not have "AS query", there must be a column list
+  @BaseMessage("Missing column list")
+  ExInst<SqlValidatorException> createTableRequiresColumnList();
+
+  // If CREATE TABLE does not have "AS query", a type must be specified for each
+  // column
+  @BaseMessage("Type required for column ''{0}'' in CREATE TABLE without AS")
+  ExInst<SqlValidatorException> createTableRequiresColumnTypes(String columnName);
+
+  @BaseMessage("View ''{0}'' already exists and REPLACE not specified")
+  ExInst<SqlValidatorException> viewExists(String name);
+
+  @BaseMessage("Schema ''{0}'' not found")
+  ExInst<SqlValidatorException> schemaNotFound(String name);
+
+  @BaseMessage("View ''{0}'' not found")
+  ExInst<SqlValidatorException> viewNotFound(String name);
+
+  @BaseMessage("Type ''{0}'' not found")
+  ExInst<SqlValidatorException> typeNotFound(String name);
+
+  @BaseMessage("Function ''{0}'' not found")
+  ExInst<SqlValidatorException> functionNotFound(String name);
+
+  @BaseMessage("Dialect does not support feature: ''{0}''")
+  ExInst<SqlValidatorException> dialectDoesNotSupportFeature(String featureName);
+
+  @BaseMessage("Substring error: negative substring length not allowed")
+  ExInst<CalciteException> illegalNegativeSubstringLength();
+
+  @BaseMessage("Trim error: trim character must be exactly 1 character")
+  ExInst<CalciteException> trimError();
+
+  @BaseMessage("Invalid types for arithmetic: {0} {1} {2}")
+  ExInst<CalciteException> invalidTypesForArithmetic(String clazzName0, String op,
+      String clazzName1);
+
+  @BaseMessage("Invalid types for comparison: {0} {1} {2}")
+  ExInst<CalciteException> invalidTypesForComparison(String clazzName0, String op,
+      String clazzName1);
+
+  @BaseMessage("Cannot convert {0} to {1}")
+  ExInst<CalciteException> cannotConvert(String o, String toType);
+
+  @BaseMessage("Invalid character for cast: {0}")
+  ExInst<CalciteException> invalidCharacterForCast(String s);
+
+  @BaseMessage("More than one value in list: {0}")
+  ExInst<CalciteException> moreThanOneValueInList(String list);
+
+  @BaseMessage("Failed to access field ''{0}'' of object of type {1}")
+  ExInstWithCause<CalciteException> failedToAccessField(String fieldName, String typeName);
+
+  @BaseMessage("Illegal jsonpath spec ''{0}'', format of the spec should be: ''<lax|strict> $'{'expr'}'''")
+  ExInst<CalciteException> illegalJsonPathSpec(String pathSpec);
+
+  @BaseMessage("Illegal jsonpath mode ''{0}''")
+  ExInst<CalciteException> illegalJsonPathMode(String pathMode);
+
+  @BaseMessage("Illegal jsonpath mode ''{0}'' in jsonpath spec: ''{1}''")
+  ExInst<CalciteException> illegalJsonPathModeInPathSpec(String pathMode, String pathSpec);
+
+  @BaseMessage("Strict jsonpath mode requires a non empty returned value, but is null")
+  ExInst<CalciteException> strictPathModeRequiresNonEmptyValue();
+
+  @BaseMessage("Illegal error behavior ''{0}'' specified in JSON_EXISTS function")
+  ExInst<CalciteException> illegalErrorBehaviorInJsonExistsFunc(String errorBehavior);
+
+  @BaseMessage("Empty result of JSON_VALUE function is not allowed")
+  ExInst<CalciteException> emptyResultOfJsonValueFuncNotAllowed();
+
+  @BaseMessage("Illegal empty behavior ''{0}'' specified in JSON_VALUE function")
+  ExInst<CalciteException> illegalEmptyBehaviorInJsonValueFunc(String emptyBehavior);
+
+  @BaseMessage("Illegal error behavior ''{0}'' specified in JSON_VALUE function")
+  ExInst<CalciteException> illegalErrorBehaviorInJsonValueFunc(String errorBehavior);
+
+  @BaseMessage("Strict jsonpath mode requires scalar value, and the actual value is: ''{0}''")
+  ExInst<CalciteException> scalarValueRequiredInStrictModeOfJsonValueFunc(String value);
+
+  @BaseMessage("Illegal wrapper behavior ''{0}'' specified in JSON_QUERY function")
+  ExInst<CalciteException> illegalWrapperBehaviorInJsonQueryFunc(String wrapperBehavior);
+
+  @BaseMessage("Empty result of JSON_QUERY function is not allowed")
+  ExInst<CalciteException> emptyResultOfJsonQueryFuncNotAllowed();
+
+  @BaseMessage("Illegal empty behavior ''{0}'' specified in JSON_VALUE function")
+  ExInst<CalciteException> illegalEmptyBehaviorInJsonQueryFunc(String emptyBehavior);
+
+  @BaseMessage("Strict jsonpath mode requires array or object value, and the actual value is: ''{0}''")
+  ExInst<CalciteException> arrayOrObjectValueRequiredInStrictModeOfJsonQueryFunc(String value);
+
+  @BaseMessage("Illegal error behavior ''{0}'' specified in JSON_VALUE function")
+  ExInst<CalciteException> illegalErrorBehaviorInJsonQueryFunc(String errorBehavior);
+
+  @BaseMessage("Null key of JSON object is not allowed")
+  ExInst<CalciteException> nullKeyOfJsonObjectNotAllowed();
+
+  @BaseMessage("Timeout of ''{0}'' ms for query execution is reached. Query execution started at ''{1}''")
+  ExInst<CalciteException> queryExecutionTimeoutReached(String timeout, String queryStart);
+
+  @BaseMessage("Including both WITHIN GROUP(...) and inside ORDER BY in a single JSON_ARRAYAGG call is not allowed")
+  ExInst<CalciteException> ambiguousSortOrderInJsonArrayAggFunc();
+
+  @BaseMessage("While executing SQL [{0}] on JDBC sub-schema")
+  ExInst<RuntimeException> exceptionWhilePerformingQueryOnJdbcSubSchema(String sql);
+
+  @BaseMessage("Not a valid input for JSON_TYPE: ''{0}''")
+  ExInst<CalciteException> invalidInputForJsonType(String value);
+
+  @BaseMessage("Not a valid input for JSON_DEPTH: ''{0}''")
+  ExInst<CalciteException> invalidInputForJsonDepth(String value);
+
+  @BaseMessage("Cannot serialize object to JSON: ''{0}''")
+  ExInst<CalciteException> exceptionWhileSerializingToJson(String value);
+
+  @BaseMessage("Not a valid input for JSON_LENGTH: ''{0}''")
+  ExInst<CalciteException> invalidInputForJsonLength(String value);
+
+  @BaseMessage("Not a valid input for JSON_KEYS: ''{0}''")
+  ExInst<CalciteException> invalidInputForJsonKeys(String value);
+
+  @BaseMessage("Invalid input for JSON_REMOVE: document: ''{0}'', jsonpath expressions: ''{1}''")
+  ExInst<CalciteException> invalidInputForJsonRemove(String value, String pathSpecs);
+
+  @BaseMessage("Not a valid input for JSON_STORAGE_SIZE: ''{0}''")
+  ExInst<CalciteException> invalidInputForJsonStorageSize(String value);
+
+  @BaseMessage("Not a valid input for REGEXP_REPLACE: ''{0}''")
+  ExInst<CalciteException> invalidInputForRegexpReplace(String value);
 }
 
 // End CalciteResource.java

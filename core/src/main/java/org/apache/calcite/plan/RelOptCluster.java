@@ -22,14 +22,14 @@ import org.apache.calcite.rel.metadata.DefaultRelMetadataProvider;
 import org.apache.calcite.rel.metadata.MetadataFactory;
 import org.apache.calcite.rel.metadata.MetadataFactoryImpl;
 import org.apache.calcite.rel.metadata.RelMetadataProvider;
+import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexNode;
 
-import com.google.common.base.Preconditions;
-
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -40,7 +40,7 @@ public class RelOptCluster {
   //~ Instance fields --------------------------------------------------------
 
   private final RelDataTypeFactory typeFactory;
-  private final RelOptPlanner planner;
+  private RelOptPlanner planner;
   private final AtomicInteger nextCorrel;
   private final Map<String, RelNode> mapCorrelToRel;
   private RexNode originalExpression;
@@ -48,6 +48,7 @@ public class RelOptCluster {
   private RelMetadataProvider metadataProvider;
   private MetadataFactory metadataFactory;
   private final RelTraitSet emptyTraitSet;
+  private RelMetadataQuery mq;
 
   //~ Constructors -----------------------------------------------------------
 
@@ -74,8 +75,8 @@ public class RelOptCluster {
       Map<String, RelNode> mapCorrelToRel) {
     this.nextCorrel = nextCorrel;
     this.mapCorrelToRel = mapCorrelToRel;
-    this.planner = Preconditions.checkNotNull(planner);
-    this.typeFactory = Preconditions.checkNotNull(typeFactory);
+    this.planner = Objects.requireNonNull(planner);
+    this.typeFactory = Objects.requireNonNull(typeFactory);
     this.rexBuilder = rexBuilder;
     this.originalExpression = rexBuilder.makeLiteral("?");
 
@@ -90,7 +91,7 @@ public class RelOptCluster {
   public static RelOptCluster create(RelOptPlanner planner,
       RexBuilder rexBuilder) {
     return new RelOptCluster(planner, rexBuilder.getTypeFactory(),
-        rexBuilder, new AtomicInteger(0), new HashMap<String, RelNode>());
+        rexBuilder, new AtomicInteger(0), new HashMap<>());
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -138,6 +139,27 @@ public class RelOptCluster {
 
   public MetadataFactory getMetadataFactory() {
     return metadataFactory;
+  }
+
+  /** Returns the current RelMetadataQuery.
+   *
+   * <p>This method might be changed or moved in future.
+   * If you have a {@link RelOptRuleCall} available,
+   * for example if you are in a {@link RelOptRule#onMatch(RelOptRuleCall)}
+   * method, then use {@link RelOptRuleCall#getMetadataQuery()} instead. */
+  public RelMetadataQuery getMetadataQuery() {
+    if (mq == null) {
+      mq = RelMetadataQuery.instance();
+    }
+    return mq;
+  }
+
+  /**
+   * Should be called whenever the current {@link RelMetadataQuery} becomes
+   * invalid. Typically invoked from {@link RelOptRuleCall#transformTo}.
+   */
+  public void invalidateMetadataQuery() {
+    mq = null;
   }
 
   /**

@@ -34,7 +34,6 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.tools.RelBuilder;
 import org.apache.calcite.tools.RelBuilderFactory;
-import org.apache.calcite.util.Util;
 
 import com.google.common.collect.ImmutableList;
 
@@ -90,21 +89,30 @@ public class JoinCommuteRule extends RelOptRule {
 
   //~ Methods ----------------------------------------------------------------
 
+  @Deprecated // to be removed before 2.0
+  public static RelNode swap(Join join) {
+    return swap(join, false,
+        RelFactories.LOGICAL_BUILDER.create(join.getCluster(), null));
+  }
+
+  @Deprecated // to be removed before 2.0
+  public static RelNode swap(Join join, boolean swapOuterJoins) {
+    return swap(join, swapOuterJoins,
+        RelFactories.LOGICAL_BUILDER.create(join.getCluster(), null));
+  }
+
   /**
    * Returns a relational expression with the inputs switched round. Does not
    * modify <code>join</code>. Returns null if the join cannot be swapped (for
    * example, because it is an outer join).
-   */
-  public static RelNode swap(Join join) {
-    return swap(join, false);
-  }
-
-  /**
-   * @param join           join to be swapped
-   * @param swapOuterJoins whether outer joins should be swapped
+   *
+   * @param join              join to be swapped
+   * @param swapOuterJoins    whether outer joins should be swapped
+   * @param relBuilder        Builder for relational expressions
    * @return swapped join if swapping possible; else null
    */
-  public static RelNode swap(Join join, boolean swapOuterJoins) {
+  public static RelNode swap(Join join, boolean swapOuterJoins,
+      RelBuilder relBuilder) {
     final JoinRelType joinType = join.getJoinType();
     if (!swapOuterJoins && joinType != JoinRelType.INNER) {
       return null;
@@ -127,11 +135,9 @@ public class JoinCommuteRule extends RelOptRule {
             join.getLeft(), joinType.swap(), join.isSemiJoinDone());
     final List<RexNode> exps =
         RelOptUtil.createSwappedJoinExprs(newJoin, join, true);
-    return RelOptUtil.createProject(
-        newJoin,
-        exps,
-        join.getRowType().getFieldNames(),
-        true);
+    return relBuilder.push(newJoin)
+        .project(exps, join.getRowType().getFieldNames())
+        .build();
   }
 
   public void onMatch(final RelOptRuleCall call) {
@@ -142,7 +148,7 @@ public class JoinCommuteRule extends RelOptRule {
       return;
     }
 
-    final RelNode swapped = swap(join, this.swapOuter);
+    final RelNode swapped = swap(join, this.swapOuter, call.builder());
     if (swapped == null) {
       return;
     }
@@ -220,8 +226,7 @@ public class JoinCommuteRule extends RelOptRule {
               rightFields.get(index).getType(),
               index);
         }
-        throw Util.newInternal("Bad field offset: index="
-            + var.getIndex()
+        throw new AssertionError("Bad field offset: index=" + var.getIndex()
             + ", leftFieldCount=" + leftFields.size()
             + ", rightFieldCount=" + rightFields.size());
       } else {

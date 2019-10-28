@@ -28,8 +28,12 @@ public class SqlUnParserTest extends SqlParserTest {
 
   //~ Methods ----------------------------------------------------------------
 
-  protected Tester getTester() {
+  @Override protected Tester getTester() {
     return new UnparsingTesterImpl();
+  }
+
+  @Override protected boolean isUnparserTest() {
+    return true;
   }
 }
 

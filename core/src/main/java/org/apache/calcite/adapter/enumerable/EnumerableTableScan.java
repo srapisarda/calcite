@@ -31,7 +31,6 @@ import org.apache.calcite.linq4j.tree.Types;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.RelTraitSet;
-import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollationTraitDef;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableScan;
@@ -45,7 +44,6 @@ import org.apache.calcite.schema.StreamableTable;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.util.BuiltInMethod;
 
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 
 import java.lang.reflect.Type;
@@ -76,26 +74,13 @@ public class EnumerableTableScan
     Class elementType = EnumerableTableScan.deduceElementType(table);
     final RelTraitSet traitSet =
         cluster.traitSetOf(EnumerableConvention.INSTANCE)
-            .replaceIfs(RelCollationTraitDef.INSTANCE,
-                new Supplier<List<RelCollation>>() {
-                  public List<RelCollation> get() {
-                    if (table != null) {
-                      return table.getStatistic().getCollations();
-                    }
-                    return ImmutableList.of();
-                  }
-                });
+            .replaceIfs(RelCollationTraitDef.INSTANCE, () -> {
+              if (table != null) {
+                return table.getStatistic().getCollations();
+              }
+              return ImmutableList.of();
+            });
     return new EnumerableTableScan(cluster, traitSet, relOptTable, elementType);
-  }
-
-  @Override public boolean equals(Object obj) {
-    return obj == this
-        || obj instanceof EnumerableTableScan
-        && table.equals(((EnumerableTableScan) obj).table);
-  }
-
-  @Override public int hashCode() {
-    return table.hashCode();
   }
 
   /** Returns whether EnumerableTableScan can generate code to handle a
@@ -125,6 +110,13 @@ public class EnumerableTableScan
     } else {
       return Object.class;
     }
+  }
+
+  public static JavaRowFormat deduceFormat(RelOptTable table) {
+    final Class elementType = deduceElementType(table.unwrap(Table.class));
+    return elementType == Object[].class
+        ? JavaRowFormat.ARRAY
+        : JavaRowFormat.CUSTOM;
   }
 
   private Expression getExpression(PhysType physType) {
@@ -184,7 +176,8 @@ public class EnumerableTableScan
 
   private Expression fieldExpression(ParameterExpression row_, int i,
       PhysType physType, JavaRowFormat format) {
-    final Expression e = format.field(row_, i, physType.getJavaFieldType(i));
+    final Expression e =
+        format.field(row_, i, null, physType.getJavaFieldType(i));
     final RelDataType relFieldType =
         physType.getRowType().getFieldList().get(i).getType();
     switch (relFieldType.getSqlTypeName()) {
@@ -200,10 +193,7 @@ public class EnumerableTableScan
           typeFactory, relFieldType.getComponentType(), JavaRowFormat.CUSTOM);
       final MethodCallExpression e2 =
           Expressions.call(BuiltInMethod.AS_ENUMERABLE2.method, e);
-      final RelDataType dummyType = this.rowType;
-      final Expression e3 =
-          elementPhysType.convertTo(e2,
-              PhysTypeImpl.of(typeFactory, dummyType, JavaRowFormat.LIST));
+      final Expression e3 = elementPhysType.convertTo(e2, JavaRowFormat.LIST);
       return Expressions.call(e3, BuiltInMethod.ENUMERABLE_TO_LIST.method);
     default:
       return e;

@@ -78,7 +78,7 @@ class QueryableRelBuilder<T> implements QueryableFactory<T> {
   private final LixToRelTranslator translator;
   private RelNode rel;
 
-  public QueryableRelBuilder(LixToRelTranslator translator) {
+  QueryableRelBuilder(LixToRelTranslator translator) {
     this.translator = translator;
   }
 
@@ -99,7 +99,8 @@ class QueryableRelBuilder<T> implements QueryableFactory<T> {
           RelOptTableImpl.create(null, table.getRowType(translator.typeFactory),
               tableEntry, null);
       if (table instanceof TranslatableTable) {
-        return ((TranslatableTable) table).toRel(translator, relOptTable);
+        return ((TranslatableTable) table).toRel(translator.toRelContext(),
+            relOptTable);
       } else {
         return LogicalTableScan.create(translator.cluster, relOptTable);
       }

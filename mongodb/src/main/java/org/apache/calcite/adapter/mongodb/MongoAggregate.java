@@ -44,15 +44,14 @@ public class MongoAggregate
   public MongoAggregate(
       RelOptCluster cluster,
       RelTraitSet traitSet,
-      RelNode child,
-      boolean indicator,
+      RelNode input,
       ImmutableBitSet groupSet,
       List<ImmutableBitSet> groupSets,
       List<AggregateCall> aggCalls)
       throws InvalidRelException {
-    super(cluster, traitSet, child, indicator, groupSet, groupSets, aggCalls);
+    super(cluster, traitSet, input, groupSet, groupSets, aggCalls);
     assert getConvention() == MongoRel.CONVENTION;
-    assert getConvention() == child.getConvention();
+    assert getConvention() == input.getConvention();
 
     for (AggregateCall aggCall : aggCalls) {
       if (aggCall.isDistinct()) {
@@ -69,11 +68,20 @@ public class MongoAggregate
     }
   }
 
+  @Deprecated // to be removed before 2.0
+  public MongoAggregate(RelOptCluster cluster, RelTraitSet traitSet,
+      RelNode input, boolean indicator, ImmutableBitSet groupSet,
+      List<ImmutableBitSet> groupSets, List<AggregateCall> aggCalls)
+      throws InvalidRelException {
+    this(cluster, traitSet, input, groupSet, groupSets, aggCalls);
+    checkIndicator(indicator);
+  }
+
   @Override public Aggregate copy(RelTraitSet traitSet, RelNode input,
-      boolean indicator, ImmutableBitSet groupSet,
-      List<ImmutableBitSet> groupSets, List<AggregateCall> aggCalls) {
+      ImmutableBitSet groupSet, List<ImmutableBitSet> groupSets,
+      List<AggregateCall> aggCalls) {
     try {
-      return new MongoAggregate(getCluster(), traitSet, input, indicator,
+      return new MongoAggregate(getCluster(), traitSet, input,
           groupSet, groupSets, aggCalls);
     } catch (InvalidRelException e) {
       // Semantic error not possible. Must be a bug. Convert to
@@ -84,7 +92,7 @@ public class MongoAggregate
 
   public void implement(Implementor implementor) {
     implementor.visitChild(0, getInput());
-    List<String> list = new ArrayList<String>();
+    List<String> list = new ArrayList<>();
     final List<String> inNames =
         MongoRules.mongoFieldNames(getInput().getRowType());
     final List<String> outNames = MongoRules.mongoFieldNames(getRowType());
@@ -94,7 +102,7 @@ public class MongoAggregate
       list.add("_id: " + MongoRules.maybeQuote("$" + inName));
       ++i;
     } else {
-      List<String> keys = new ArrayList<String>();
+      List<String> keys = new ArrayList<>();
       for (int group : groupSet) {
         final String inName = inNames.get(group);
         keys.add(inName + ": " + MongoRules.quote("$" + inName));
@@ -123,7 +131,7 @@ public class MongoAggregate
         }
       };
     } else {
-      fixups = new ArrayList<String>();
+      fixups = new ArrayList<>();
       fixups.add("_id: 0");
       i = 0;
       for (int group : groupSet) {

@@ -79,7 +79,7 @@ public class MongoFilter extends Filter implements MongoRel {
     final Multimap<String, Pair<String, RexLiteral>> multimap =
         HashMultimap.create();
     final Map<String, RexLiteral> eqMap =
-        new LinkedHashMap<String, RexLiteral>();
+        new LinkedHashMap<>();
     private final List<String> fieldNames;
 
     Translator(List<String> fieldNames) {
@@ -93,7 +93,7 @@ public class MongoFilter extends Filter implements MongoRel {
     }
 
     private Object translateOr(RexNode condition) {
-      List<Object> list = new ArrayList<Object>();
+      List<Object> list = new ArrayList<>();
       for (RexNode node : RelOptUtil.disjunctions(condition)) {
         list.add(translateAnd(node));
       }
@@ -215,7 +215,7 @@ public class MongoFilter extends Filter implements MongoRel {
         return true;
       case CAST:
         return translateBinary2(op, ((RexCall) left).operands.get(0), right);
-      case OTHER_FUNCTION:
+      case ITEM:
         String itemName = MongoRules.isItem((RexCall) left);
         if (itemName != null) {
           translateOp2(op, itemName, rightLiteral);

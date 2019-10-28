@@ -25,12 +25,11 @@ import org.apache.calcite.sql.SqlOperandCountRange;
 import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.SqlUtil;
 
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.function.Predicate;
 
 import static org.apache.calcite.util.Static.RESOURCE;
 
@@ -61,7 +60,7 @@ public abstract class OperandTypes {
    */
   public static FamilyOperandTypeChecker family(SqlTypeFamily... families) {
     return new FamilyOperandTypeChecker(ImmutableList.copyOf(families),
-        Predicates.<Integer>alwaysFalse());
+        i -> false);
   }
 
   /**
@@ -78,7 +77,7 @@ public abstract class OperandTypes {
    * corresponding family.
    */
   public static FamilyOperandTypeChecker family(List<SqlTypeFamily> families) {
-    return family(families, Predicates.<Integer>alwaysFalse());
+    return family(families, i -> false);
   }
 
   /**
@@ -200,6 +199,17 @@ public abstract class OperandTypes {
   public static final SqlSingleOperandTypeChecker NUMERIC =
       family(SqlTypeFamily.NUMERIC);
 
+  public static final SqlSingleOperandTypeChecker INTEGER =
+      family(SqlTypeFamily.INTEGER);
+
+  public static final SqlSingleOperandTypeChecker NUMERIC_OPTIONAL_INTEGER =
+      family(ImmutableList.of(SqlTypeFamily.NUMERIC, SqlTypeFamily.INTEGER),
+          // Second operand optional (operand index 0, 1)
+          number -> number == 1);
+
+  public static final SqlSingleOperandTypeChecker NUMERIC_INTEGER =
+      family(SqlTypeFamily.NUMERIC, SqlTypeFamily.INTEGER);
+
   public static final SqlSingleOperandTypeChecker NUMERIC_NUMERIC =
       family(SqlTypeFamily.NUMERIC, SqlTypeFamily.NUMERIC);
 
@@ -229,6 +239,15 @@ public abstract class OperandTypes {
 
   public static final SqlSingleOperandTypeChecker INTERVAL =
       family(SqlTypeFamily.DATETIME_INTERVAL);
+
+  public static final SqlSingleOperandTypeChecker CHARACTER_CHARACTER_DATETIME =
+      family(SqlTypeFamily.CHARACTER, SqlTypeFamily.CHARACTER, SqlTypeFamily.DATETIME);
+
+  public static final SqlSingleOperandTypeChecker PERIOD =
+      new PeriodOperandTypeChecker();
+
+  public static final SqlSingleOperandTypeChecker PERIOD_OR_DATETIME =
+      or(PERIOD, DATETIME);
 
   public static final FamilyOperandTypeChecker INTERVAL_INTERVAL =
       family(SqlTypeFamily.DATETIME_INTERVAL, SqlTypeFamily.DATETIME_INTERVAL);
@@ -268,7 +287,7 @@ public abstract class OperandTypes {
    */
   public static final SqlSingleOperandTypeChecker POSITIVE_INTEGER_LITERAL =
       new FamilyOperandTypeChecker(ImmutableList.of(SqlTypeFamily.INTEGER),
-          Predicates.<Integer>alwaysFalse()) {
+          i -> false) {
         public boolean checkSingleOperandType(
             SqlCallBinding callBinding,
             SqlNode node,
@@ -326,6 +345,9 @@ public abstract class OperandTypes {
   public static final SqlSingleOperandTypeChecker SAME_SAME =
       new SameOperandTypeChecker(2);
 
+  public static final SqlSingleOperandTypeChecker SAME_SAME_INTEGER =
+      new SameOperandTypeExceptLastOperandChecker(3, "INTEGER");
+
   /**
    * Operand type-checking strategy where three operands must all be in the
    * same type family.
@@ -344,8 +366,7 @@ public abstract class OperandTypes {
    * Operand type-checking strategy where operand types must allow ordered
    * comparisons.
    */
-  public static final SqlOperandTypeChecker
-  COMPARABLE_ORDERED_COMPARABLE_ORDERED =
+  public static final SqlOperandTypeChecker COMPARABLE_ORDERED_COMPARABLE_ORDERED =
       new ComparableOperandTypeChecker(2, RelDataTypeComparability.ALL,
           SqlOperandTypeChecker.Consistency.COMPARE);
 
@@ -362,8 +383,7 @@ public abstract class OperandTypes {
    * Operand type-checking strategy where operand types must allow unordered
    * comparisons.
    */
-  public static final SqlOperandTypeChecker
-  COMPARABLE_UNORDERED_COMPARABLE_UNORDERED =
+  public static final SqlOperandTypeChecker COMPARABLE_UNORDERED_COMPARABLE_UNORDERED =
       new ComparableOperandTypeChecker(2, RelDataTypeComparability.UNORDERED,
           SqlOperandTypeChecker.Consistency.LEAST_RESTRICTIVE);
 
@@ -384,16 +404,34 @@ public abstract class OperandTypes {
   public static final SqlSingleOperandTypeChecker STRING_STRING_INTEGER =
       family(SqlTypeFamily.STRING, SqlTypeFamily.STRING, SqlTypeFamily.INTEGER);
 
-  public static final SqlSingleOperandTypeChecker
-  STRING_STRING_INTEGER_INTEGER =
+  public static final SqlSingleOperandTypeChecker STRING_STRING_INTEGER_INTEGER =
       family(SqlTypeFamily.STRING, SqlTypeFamily.STRING,
           SqlTypeFamily.INTEGER, SqlTypeFamily.INTEGER);
+
+  public static final SqlSingleOperandTypeChecker STRING_INTEGER =
+      family(SqlTypeFamily.STRING, SqlTypeFamily.INTEGER);
+
+  /** Operand type-checking strategy where the first operand is a character or
+   * binary string (CHAR, VARCHAR, BINARY or VARBINARY), and the second operand
+   * is INTEGER. */
+  public static final SqlSingleOperandTypeChecker CBSTRING_INTEGER =
+      or(family(SqlTypeFamily.STRING, SqlTypeFamily.INTEGER),
+          family(SqlTypeFamily.BINARY, SqlTypeFamily.INTEGER));
+
+  /**
+   * Operand type-checking strategy where two operands must both be in the
+   * same string type family and last type is INTEGER.
+   */
+  public static final SqlSingleOperandTypeChecker STRING_SAME_SAME_INTEGER =
+      OperandTypes.and(STRING_STRING_INTEGER, SAME_SAME_INTEGER);
 
   public static final SqlSingleOperandTypeChecker ANY =
       family(SqlTypeFamily.ANY);
 
   public static final SqlSingleOperandTypeChecker ANY_ANY =
       family(SqlTypeFamily.ANY, SqlTypeFamily.ANY);
+  public static final SqlSingleOperandTypeChecker ANY_NUMERIC =
+      family(SqlTypeFamily.ANY, SqlTypeFamily.NUMERIC);
 
   /**
    * Parameter type-checking strategy type must a nullable time interval,
@@ -411,11 +449,22 @@ public abstract class OperandTypes {
   public static final SqlSingleOperandTypeChecker DATETIME_INTERVAL =
       family(SqlTypeFamily.DATETIME, SqlTypeFamily.DATETIME_INTERVAL);
 
+  public static final SqlSingleOperandTypeChecker DATETIME_INTERVAL_INTERVAL =
+      family(SqlTypeFamily.DATETIME, SqlTypeFamily.DATETIME_INTERVAL,
+          SqlTypeFamily.DATETIME_INTERVAL);
+
+  public static final SqlSingleOperandTypeChecker DATETIME_INTERVAL_INTERVAL_TIME =
+      family(SqlTypeFamily.DATETIME, SqlTypeFamily.DATETIME_INTERVAL,
+          SqlTypeFamily.DATETIME_INTERVAL, SqlTypeFamily.TIME);
+
+  public static final SqlSingleOperandTypeChecker DATETIME_INTERVAL_TIME =
+      family(SqlTypeFamily.DATETIME, SqlTypeFamily.DATETIME_INTERVAL,
+          SqlTypeFamily.TIME);
+
   public static final SqlSingleOperandTypeChecker INTERVAL_DATETIME =
       family(SqlTypeFamily.DATETIME_INTERVAL, SqlTypeFamily.DATETIME);
 
-  public static final SqlSingleOperandTypeChecker
-  INTERVALINTERVAL_INTERVALDATETIME =
+  public static final SqlSingleOperandTypeChecker INTERVALINTERVAL_INTERVALDATETIME =
       OperandTypes.or(INTERVAL_SAME_SAME, INTERVAL_DATETIME);
 
   // TODO: datetime+interval checking missing
@@ -440,11 +489,11 @@ public abstract class OperandTypes {
       // TODO:  compatibility check
       OperandTypes.or(NUMERIC_NUMERIC, INTERVAL_SAME_SAME, DATETIME_INTERVAL);
 
-  public static final SqlSingleOperandTypeChecker MINUS_DATE_OPERATOR =
+  public static final FamilyOperandTypeChecker MINUS_DATE_OPERATOR =
       new FamilyOperandTypeChecker(
           ImmutableList.of(SqlTypeFamily.DATETIME, SqlTypeFamily.DATETIME,
               SqlTypeFamily.DATETIME_INTERVAL),
-          Predicates.<Integer>alwaysFalse()) {
+          i -> false) {
         public boolean checkOperandTypes(
             SqlCallBinding callBinding,
             boolean throwOnFailure) {
@@ -594,6 +643,65 @@ public abstract class OperandTypes {
           return Consistency.NONE;
         }
       };
+
+  /** Operand type checker that accepts period types:
+   * PERIOD (DATETIME, DATETIME)
+   * PERIOD (DATETIME, INTERVAL)
+   * [ROW] (DATETIME, DATETIME)
+   * [ROW] (DATETIME, INTERVAL) */
+  private static class PeriodOperandTypeChecker
+      implements SqlSingleOperandTypeChecker {
+    public boolean checkSingleOperandType(SqlCallBinding callBinding,
+        SqlNode node, int iFormalOperand, boolean throwOnFailure) {
+      assert 0 == iFormalOperand;
+      RelDataType type =
+          callBinding.getValidator().deriveType(callBinding.getScope(), node);
+      boolean valid = false;
+      if (type.isStruct() && type.getFieldList().size() == 2) {
+        final RelDataType t0 = type.getFieldList().get(0).getType();
+        final RelDataType t1 = type.getFieldList().get(1).getType();
+        if (SqlTypeUtil.isDatetime(t0)) {
+          if (SqlTypeUtil.isDatetime(t1)) {
+            // t0 must be comparable with t1; (DATE, TIMESTAMP) is not valid
+            if (SqlTypeUtil.sameNamedType(t0, t1)) {
+              valid = true;
+            }
+          } else if (SqlTypeUtil.isInterval(t1)) {
+            valid = true;
+          }
+        }
+      }
+
+      if (!valid && throwOnFailure) {
+        throw callBinding.newValidationSignatureError();
+      }
+      return valid;
+    }
+
+    public boolean checkOperandTypes(SqlCallBinding callBinding,
+        boolean throwOnFailure) {
+      return checkSingleOperandType(callBinding, callBinding.operand(0), 0,
+          throwOnFailure);
+    }
+
+    public SqlOperandCountRange getOperandCountRange() {
+      return SqlOperandCountRanges.of(1);
+    }
+
+    public String getAllowedSignatures(SqlOperator op, String opName) {
+      return SqlUtil.getAliasedSignature(op, opName,
+          ImmutableList.of("PERIOD (DATETIME, INTERVAL)",
+              "PERIOD (DATETIME, DATETIME)"));
+    }
+
+    public boolean isOptional(int i) {
+      return false;
+    }
+
+    public Consistency getConsistency() {
+      return Consistency.NONE;
+    }
+  }
 }
 
 // End OperandTypes.java

@@ -21,10 +21,9 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelProtoDataType;
 import org.apache.calcite.schema.Statistic;
-import org.apache.calcite.schema.Statistics;
 import org.apache.calcite.schema.impl.AbstractTable;
+import org.apache.calcite.util.Source;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,34 +31,33 @@ import java.util.List;
  * Base class for table that reads CSV files.
  */
 public abstract class CsvTable extends AbstractTable {
-  protected final File file;
-  private final RelProtoDataType protoRowType;
-  private final Statistic statistic;
+  protected final Source source;
+  protected final RelProtoDataType protoRowType;
+  protected final Statistic statistic;
   protected List<CsvFieldType> fieldTypes;
 
-  /** Creates a CsvAbstractTable. */
-  CsvTable(File file, RelProtoDataType protoRowType, Statistic statistic) {
-    this.file = file;
+  /** Creates a CsvTable with statistic. */
+  CsvTable(Source source, RelProtoDataType protoRowType, Statistic statistic) {
+    this.source = source;
     this.protoRowType = protoRowType;
     this.statistic = statistic;
   }
 
-  CsvTable(File file, RelProtoDataType protoRowType) {
-    this(file, protoRowType, Statistics.UNKNOWN);
+  /** Creates a CsvTable. */
+  CsvTable(Source source, RelProtoDataType protoRowType) {
+    this(source, protoRowType, null);
   }
-
 
   public RelDataType getRowType(RelDataTypeFactory typeFactory) {
     if (protoRowType != null) {
       return protoRowType.apply(typeFactory);
     }
     if (fieldTypes == null) {
-      fieldTypes = new ArrayList<CsvFieldType>();
-      return CsvEnumerator.deduceRowType((JavaTypeFactory) typeFactory, file,
+      fieldTypes = new ArrayList<>();
+      return CsvEnumerator.deduceRowType((JavaTypeFactory) typeFactory, source,
           fieldTypes);
     } else {
-      return CsvEnumerator.deduceRowType((JavaTypeFactory) typeFactory,
-          file,
+      return CsvEnumerator.deduceRowType((JavaTypeFactory) typeFactory, source,
           null);
     }
   }

@@ -16,28 +16,28 @@
  */
 package org.apache.calcite.linq4j.tree;
 
+import org.apache.calcite.avatica.util.Spacer;
+
 import java.lang.reflect.Type;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Iterator;
 
 /**
  * Converts an expression to Java code.
  */
 class ExpressionWriter {
-  static final Indent INDENT = new Indent(20);
+  /** How many spaces to indent Java code. */
+  private static final int INDENT = 2;
 
+  private final Spacer spacer = new Spacer(0);
   private final StringBuilder buf = new StringBuilder();
-  private int level;
-  private String indent = "";
   private boolean indentPending;
   private final boolean generics;
 
-  public ExpressionWriter() {
+  ExpressionWriter() {
     this(true);
   }
 
-  public ExpressionWriter(boolean generics) {
+  ExpressionWriter(boolean generics) {
     this.generics = generics;
   }
 
@@ -75,14 +75,14 @@ class ExpressionWriter {
    * Increases the indentation level.
    */
   public void begin() {
-    indent = INDENT.get(++level);
+    spacer.add(INDENT);
   }
 
   /**
    * Decreases the indentation level.
    */
   public void end() {
-    indent = INDENT.get(--level);
+    spacer.subtract(INDENT);
   }
 
   public ExpressionWriter newlineAndIndent() {
@@ -92,7 +92,7 @@ class ExpressionWriter {
   }
 
   public ExpressionWriter indent() {
-    buf.append(indent);
+    spacer.spaces(buf);
     return this;
   }
 
@@ -144,7 +144,7 @@ class ExpressionWriter {
 
   private void checkIndent() {
     if (indentPending) {
-      buf.append(indent);
+      spacer.spaces(buf);
       indentPending = false;
     }
   }
@@ -192,32 +192,6 @@ class ExpressionWriter {
     if (buf.lastIndexOf("\n") == buf.length() - 1) {
       buf.delete(buf.length() - 1, buf.length());
       indentPending = false;
-    }
-  }
-
-  /** Helps generate strings of spaces, to indent text. */
-  private static class Indent extends ArrayList<String> {
-    public Indent(int initialCapacity) {
-      super(initialCapacity);
-      ensureSize(initialCapacity);
-    }
-
-    public synchronized String of(int index) {
-      ensureSize(index + 1);
-      return get(index);
-    }
-
-    private void ensureSize(int targetSize) {
-      if (targetSize < size()) {
-        return;
-      }
-      char[] chars = new char[2 * targetSize];
-      Arrays.fill(chars, ' ');
-      String bigString = new String(chars);
-      clear();
-      for (int i = 0; i < targetSize; i++) {
-        add(bigString.substring(0, i * 2));
-      }
     }
   }
 }

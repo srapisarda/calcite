@@ -85,25 +85,21 @@ public final class BitSets {
    * @return Iterable
    */
   public static Iterable<Integer> toIter(final BitSet bitSet) {
-    return new Iterable<Integer>() {
-      public Iterator<Integer> iterator() {
-        return new Iterator<Integer>() {
-          int i = bitSet.nextSetBit(0);
+    return () -> new Iterator<Integer>() {
+      int i = bitSet.nextSetBit(0);
 
-          public boolean hasNext() {
-            return i >= 0;
-          }
+      public boolean hasNext() {
+        return i >= 0;
+      }
 
-          public Integer next() {
-            int prev = i;
-            i = bitSet.nextSetBit(i + 1);
-            return prev;
-          }
+      public Integer next() {
+        int prev = i;
+        i = bitSet.nextSetBit(i + 1);
+        return prev;
+      }
 
-          public void remove() {
-            throw new UnsupportedOperationException();
-          }
-        };
+      public void remove() {
+        throw new UnsupportedOperationException();
       }
     };
   }
@@ -327,7 +323,7 @@ public final class BitSets {
     private SortedMap<Integer, BitSet> equivalence;
     private final SortedMap<Integer, BitSet> closure = new TreeMap<>();
 
-    public Closure(SortedMap<Integer, BitSet> equivalence) {
+    Closure(SortedMap<Integer, BitSet> equivalence) {
       this.equivalence = equivalence;
       final ImmutableIntList keys =
           ImmutableIntList.copyOf(equivalence.keySet());

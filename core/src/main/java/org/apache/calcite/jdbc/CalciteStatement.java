@@ -16,7 +16,6 @@
  */
 package org.apache.calcite.jdbc;
 
-import org.apache.calcite.avatica.AvaticaResultSet;
 import org.apache.calcite.avatica.AvaticaStatement;
 import org.apache.calcite.avatica.Meta;
 import org.apache.calcite.avatica.NoSuchStatementException;
@@ -64,10 +63,6 @@ public abstract class CalciteStatement extends AvaticaStatement {
     return (CalciteConnectionImpl) connection;
   }
 
-  public CalciteConnectionImpl.ContextImpl createPrepareContext() {
-    return new CalciteConnectionImpl.ContextImpl(getConnection());
-  }
-
   protected <T> CalcitePrepare.CalciteSignature<T> prepare(
       Queryable<T> queryable) {
     final CalciteConnectionImpl calciteConnection = getConnection();
@@ -85,18 +80,8 @@ public abstract class CalciteStatement extends AvaticaStatement {
 
   @Override protected void close_() {
     if (!closed) {
-      closed = true;
-      final CalciteConnectionImpl connection1 =
-          (CalciteConnectionImpl) connection;
-      connection1.server.removeStatement(handle);
-      if (openResultSet != null) {
-        AvaticaResultSet c = openResultSet;
-        openResultSet = null;
-        c.close();
-      }
-      // If onStatementClose throws, this method will throw an exception (later
-      // converted to SQLException), but this statement still gets closed.
-      connection1.getDriver().handler.onStatementClose(this);
+      ((CalciteConnectionImpl) connection).server.removeStatement(handle);
+      super.close_();
     }
   }
 }

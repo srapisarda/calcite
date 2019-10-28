@@ -18,18 +18,16 @@ package org.apache.calcite.rel.metadata;
 
 import org.apache.calcite.adapter.enumerable.EnumerableAggregate;
 import org.apache.calcite.adapter.enumerable.EnumerableFilter;
-import org.apache.calcite.adapter.enumerable.EnumerableJoin;
+import org.apache.calcite.adapter.enumerable.EnumerableHashJoin;
 import org.apache.calcite.adapter.enumerable.EnumerableProject;
 import org.apache.calcite.adapter.enumerable.EnumerableTableScan;
+import org.apache.calcite.config.CalciteSystemProperty;
 import org.apache.calcite.interpreter.JaninoRexCompiler;
 import org.apache.calcite.linq4j.Ord;
-import org.apache.calcite.linq4j.tree.ClassDeclaration;
-import org.apache.calcite.linq4j.tree.MemberDeclaration;
 import org.apache.calcite.linq4j.tree.Primitive;
 import org.apache.calcite.plan.hep.HepRelVertex;
 import org.apache.calcite.plan.volcano.AbstractConverter;
 import org.apache.calcite.plan.volcano.RelSubset;
-import org.apache.calcite.prepare.CalcitePrepareImpl;
 import org.apache.calcite.rel.AbstractRelNode;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.convert.ConverterImpl;
@@ -54,8 +52,8 @@ import org.apache.calcite.rel.stream.LogicalDelta;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.util.ControlFlowException;
 import org.apache.calcite.util.Pair;
+import org.apache.calcite.util.Util;
 
-import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -67,15 +65,13 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
 
 import org.codehaus.commons.compiler.CompileException;
 import org.codehaus.commons.compiler.CompilerFactoryFactory;
-import org.codehaus.commons.compiler.IClassBodyEvaluator;
 import org.codehaus.commons.compiler.ICompilerFactory;
+import org.codehaus.commons.compiler.ISimpleCompiler;
 
 import java.io.IOException;
-import java.io.StringReader;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -85,7 +81,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ExecutionException;
-import javax.annotation.Nonnull;
 
 /**
  * Implementation of the {@link RelMetadataProvider} interface that generates
@@ -105,15 +100,14 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider {
   /** Cache of pre-generated handlers by provider and kind of metadata.
    * For the cache to be effective, providers should implement identity
    * correctly. */
+  @SuppressWarnings("unchecked")
   private static final LoadingCache<Key, MetadataHandler> HANDLERS =
-      CacheBuilder.newBuilder().build(
-          new CacheLoader<Key, MetadataHandler>() {
-            public MetadataHandler load(@Nonnull Key key) {
-              //noinspection unchecked
-              return load3(key.def, key.provider.handlers(key.def),
-                  key.relClasses);
-            }
-          });
+      maxSize(CacheBuilder.newBuilder(),
+          CalciteSystemProperty.METADATA_HANDLER_CACHE_MAXIMUM_SIZE.value())
+          .build(
+              CacheLoader.from(key ->
+                  load3(key.def, key.provider.handlers(key.def),
+                      key.relClasses)));
 
   // Pre-register the most common relational operators, to reduce the number of
   // times we re-generate.
@@ -148,7 +142,7 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider {
             EnumerableAggregate.class,
             EnumerableFilter.class,
             EnumerableProject.class,
-            EnumerableJoin.class,
+            EnumerableHashJoin.class,
             EnumerableTableScan.class));
   }
 
@@ -168,6 +162,15 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider {
     return new JaninoRelMetadataProvider(provider);
   }
 
+  // helper for initialization
+  private static <K, V> CacheBuilder<K, V> maxSize(CacheBuilder<K, V> builder,
+      int size) {
+    if (size >= 0) {
+      builder.maximumSize(size);
+    }
+    return builder;
+  }
+
   @Override public boolean equals(Object obj) {
     return obj == this
         || obj instanceof JaninoRelMetadataProvider
@@ -184,13 +187,12 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider {
   }
 
   public <M extends Metadata> Multimap<Method, MetadataHandler<M>>
-  handlers(MetadataDef<M> def) {
+      handlers(MetadataDef<M> def) {
     return provider.handlers(def);
   }
 
-  private static <M extends Metadata>
-  MetadataHandler<M> load3(MetadataDef<M> def,
-      Multimap<Method, MetadataHandler<M>> map,
+  private static <M extends Metadata> MetadataHandler<M> load3(
+      MetadataDef<M> def, Multimap<Method, MetadataHandler<M>> map,
       ImmutableList<Class<? extends RelNode>> relClasses) {
     final StringBuilder buff = new StringBuilder();
     final String name =
@@ -228,7 +230,9 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider {
           .append(";\n");
     }
     buff.append("  }\n")
-        .append("  public org.apache.calcite.rel.metadata.MetadataDef getDef() {\n")
+        .append("  public ")
+        .append(MetadataDef.class.getName())
+        .append(" getDef() {\n")
         .append("    return ")
         .append(def.metadataClass.getName())
         .append(".DEF;\n")
@@ -239,8 +243,12 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider {
           .append(" ")
           .append(method.e.getName())
           .append("(\n")
-          .append("      org.apache.calcite.rel.RelNode r,\n")
-          .append("      org.apache.calcite.rel.metadata.RelMetadataQuery mq");
+          .append("      ")
+          .append(RelNode.class.getName())
+          .append(" r,\n")
+          .append("      ")
+          .append(RelMetadataQuery.class.getName())
+          .append(" mq");
       paramList(buff, method.e)
           .append(") {\n");
       buff.append("    final java.util.List key = ")
@@ -265,9 +273,14 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider {
           .append("      if (v == ")
           .append(NullSentinel.class.getName())
           .append(".ACTIVE) {\n")
-          .append("        throw ")
+          .append("        throw new ")
           .append(CyclicMetadataException.class.getName())
-          .append(".INSTANCE;\n")
+          .append("();\n")
+          .append("      }\n")
+          .append("      if (v == ")
+          .append(NullSentinel.class.getName())
+          .append(".INSTANCE) {\n")
+          .append("        return null;\n")
           .append("      }\n")
           .append("      return (")
           .append(method.e.getReturnType().getName())
@@ -284,10 +297,12 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider {
           .append("_(r, mq");
       argList(buff, method.e)
           .append(");\n")
-          .append("      mq.map.put(key, x);\n")
+          .append("      mq.map.put(key, ")
+          .append(NullSentinel.class.getName())
+          .append(".mask(x));\n")
           .append("      return x;\n")
           .append("    } catch (")
-          .append(NoHandler.class.getName())
+          .append(Exception.class.getName())
           .append(" e) {\n")
           .append("      mq.map.remove(key);\n")
           .append("      throw e;\n")
@@ -299,8 +314,12 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider {
           .append(" ")
           .append(method.e.getName())
           .append("_(\n")
-          .append("      org.apache.calcite.rel.RelNode r,\n")
-          .append("      org.apache.calcite.rel.metadata.RelMetadataQuery mq");
+          .append("      ")
+          .append(RelNode.class.getName())
+          .append(" r,\n")
+          .append("      ")
+          .append(RelMetadataQuery.class.getName())
+          .append(" mq");
       paramList(buff, method.e)
           .append(") {\n");
       buff.append("    switch (relClasses.indexOf(r.getClass())) {\n");
@@ -350,20 +369,18 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider {
         buff.append(pair.getKey());
       }
     }
-    ClassDeclaration decl = new ClassDeclaration(0, name, Object.class,
-        ImmutableList.<Type>of(), ImmutableList.<MemberDeclaration>of());
-    final List<Object> argList = new ArrayList<Object>(Pair.right(providerList));
+    final List<Object> argList = new ArrayList<>(Pair.right(providerList));
     argList.add(0, ImmutableList.copyOf(relClasses));
     try {
-      return compile(decl, buff.toString(), def, argList);
+      return compile(name, buff.toString(), def, argList);
     } catch (CompileException | IOException e) {
-      System.out.println(buff);
-      throw Throwables.propagate(e);
+      throw new RuntimeException("Error compiling:\n"
+          + buff, e);
     }
   }
 
-  private static String
-  findProvider(List<Pair<String, MetadataHandler>> providerList,
+  private static String findProvider(
+      List<Pair<String, MetadataHandler>> providerList,
       Class<?> declaringClass) {
     for (Pair<String, MetadataHandler> pair : providerList) {
       if (declaringClass.isInstance(pair.right)) {
@@ -407,8 +424,8 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider {
     return buff;
   }
 
-  static <M extends Metadata> MetadataHandler<M>
-  compile(ClassDeclaration expr, String s, MetadataDef<M> def,
+  static <M extends Metadata> MetadataHandler<M> compile(String className,
+      String classBody, MetadataDef<M> def,
       List<Object> argList) throws CompileException, IOException {
     final ICompilerFactory compilerFactory;
     try {
@@ -417,42 +434,53 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider {
       throw new IllegalStateException(
           "Unable to instantiate java compiler", e);
     }
-    final IClassBodyEvaluator cbe = compilerFactory.newClassBodyEvaluator();
-    cbe.setClassName(expr.name);
-    cbe.setImplementedInterfaces(new Class[]{def.handlerClass});
-    cbe.setParentClassLoader(JaninoRexCompiler.class.getClassLoader());
-    if (CalcitePrepareImpl.DEBUG) {
+
+    final ISimpleCompiler compiler = compilerFactory.newSimpleCompiler();
+    compiler.setParentClassLoader(JaninoRexCompiler.class.getClassLoader());
+
+    final String s = "public final class " + className
+        + " implements " + def.handlerClass.getCanonicalName() + " {\n"
+        + classBody
+        + "\n"
+        + "}";
+
+    if (CalciteSystemProperty.DEBUG.value()) {
       // Add line numbers to the generated janino class
-      cbe.setDebuggingInformation(true, true, true);
+      compiler.setDebuggingInformation(true, true, true);
       System.out.println(s);
     }
-    cbe.cook(new StringReader(s));
-    final Constructor constructor = cbe.getClazz().getDeclaredConstructors()[0];
+
+    compiler.cook(s);
+    final Constructor constructor;
     final Object o;
     try {
+      constructor = compiler.getClassLoader().loadClass(className)
+              .getDeclaredConstructors()[0];
       o = constructor.newInstance(argList.toArray());
     } catch (InstantiationException
         | IllegalAccessException
-        | InvocationTargetException e) {
-      throw Throwables.propagate(e);
+        | InvocationTargetException
+        | ClassNotFoundException e) {
+      throw new RuntimeException(e);
     }
     return def.handlerClass.cast(o);
   }
 
-  synchronized <M extends Metadata, H extends MetadataHandler<M>> H
-  create(MetadataDef<M> def) {
+  synchronized <M extends Metadata, H extends MetadataHandler<M>> H create(
+      MetadataDef<M> def) {
     try {
       final Key key = new Key((MetadataDef) def, provider,
           ImmutableList.copyOf(ALL_RELS));
       //noinspection unchecked
       return (H) HANDLERS.get(key);
     } catch (UncheckedExecutionException | ExecutionException e) {
-      throw Throwables.propagate(e.getCause());
+      Util.throwIfUnchecked(e.getCause());
+      throw new RuntimeException(e.getCause());
     }
   }
 
-  synchronized <M extends Metadata, H extends MetadataHandler<M>> H
-  revise(Class<? extends RelNode> rClass, MetadataDef<M> def) {
+  synchronized <M extends Metadata, H extends MetadataHandler<M>> H revise(
+      Class<? extends RelNode> rClass, MetadataDef<M> def) {
     if (ALL_RELS.add(rClass)) {
       HANDLERS.invalidateAll();
     }

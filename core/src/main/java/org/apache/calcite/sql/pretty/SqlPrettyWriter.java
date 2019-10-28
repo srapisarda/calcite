@@ -20,12 +20,14 @@ import org.apache.calcite.avatica.util.Spaces;
 import org.apache.calcite.sql.SqlDialect;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlWriter;
-import org.apache.calcite.sql.util.SqlBuilder;
+import org.apache.calcite.sql.dialect.AnsiSqlDialect;
 import org.apache.calcite.sql.util.SqlString;
+import org.apache.calcite.util.Unsafe;
 import org.apache.calcite.util.Util;
 import org.apache.calcite.util.trace.CalciteLogger;
 
-import com.google.common.base.Throwables;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import org.slf4j.LoggerFactory;
 
@@ -37,6 +39,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
@@ -103,12 +106,12 @@ import java.util.Set;
  * <td>false</td>
  * </tr>
  * <tr>
- * <td>{@link #setSubqueryStyle SubqueryStyle}</td>
+ * <td>{@link #setSubQueryStyle SubQueryStyle}</td>
  * <td>Style for formatting sub-queries. Values are:
- * {@link org.apache.calcite.sql.SqlWriter.SubqueryStyle#HYDE Hyde},
- * {@link org.apache.calcite.sql.SqlWriter.SubqueryStyle#BLACK Black}.</td>
+ * {@link org.apache.calcite.sql.SqlWriter.SubQueryStyle#HYDE Hyde},
+ * {@link org.apache.calcite.sql.SqlWriter.SubQueryStyle#BLACK Black}.</td>
  *
- * <td>{@link org.apache.calcite.sql.SqlWriter.SubqueryStyle#HYDE Hyde}</td>
+ * <td>{@link org.apache.calcite.sql.SqlWriter.SubQueryStyle#HYDE Hyde}</td>
  * </tr>
  * <tr>
  * <td>{@link #setLineLength LineLength}</td>
@@ -129,7 +132,7 @@ public class SqlPrettyWriter implements SqlWriter {
    * Bean holding the default property values.
    */
   private static final Bean DEFAULT_BEAN =
-      new SqlPrettyWriter(SqlDialect.DUMMY).getBean();
+      new SqlPrettyWriter(AnsiSqlDialect.DEFAULT).getBean();
   protected static final String NL = System.getProperty("line.separator");
 
   //~ Instance fields --------------------------------------------------------
@@ -138,6 +141,7 @@ public class SqlPrettyWriter implements SqlWriter {
   private final StringWriter sw = new StringWriter();
   protected final PrintWriter pw;
   private final Deque<FrameImpl> listStack = new ArrayDeque<>();
+  private ImmutableList.Builder<Integer> dynamicParameters;
   protected FrameImpl frame;
   private boolean needWhitespace;
   protected String nextWhitespace;
@@ -153,7 +157,7 @@ public class SqlPrettyWriter implements SqlWriter {
   private boolean windowDeclListNewline;
   private boolean updateSetListNewline;
   private boolean windowNewline;
-  private SubqueryStyle subqueryStyle;
+  private SubQueryStyle subQueryStyle;
   private boolean whereListItemsOnSeparateLines;
 
   private boolean caseClausesOnNewLines;
@@ -197,11 +201,11 @@ public class SqlPrettyWriter implements SqlWriter {
   }
 
   /**
-   * Sets the subquery style. Default is
-   * {@link org.apache.calcite.sql.SqlWriter.SubqueryStyle#HYDE}.
+   * Sets the sub-query style. Default is
+   * {@link org.apache.calcite.sql.SqlWriter.SubQueryStyle#HYDE}.
    */
-  public void setSubqueryStyle(SubqueryStyle subqueryStyle) {
-    this.subqueryStyle = subqueryStyle;
+  public void setSubQueryStyle(SubQueryStyle subQueryStyle) {
+    this.subQueryStyle = subQueryStyle;
   }
 
   public void setWindowNewline(boolean windowNewline) {
@@ -266,7 +270,7 @@ public class SqlPrettyWriter implements SqlWriter {
     windowDeclListNewline = true;
     updateSetListNewline = true;
     windowNewline = false;
-    subqueryStyle = SubqueryStyle.HYDE;
+    subQueryStyle = SubQueryStyle.HYDE;
     alwaysUseParentheses = false;
     whereListItemsOnSeparateLines = false;
     lineLength = 0;
@@ -275,7 +279,8 @@ public class SqlPrettyWriter implements SqlWriter {
 
   public void reset() {
     pw.flush();
-    sw.getBuffer().setLength(0);
+    Unsafe.clear(sw);
+    dynamicParameters = null;
     setNeedWhitespace(false);
     nextWhitespace = " ";
   }
@@ -361,22 +366,23 @@ public class SqlPrettyWriter implements SqlWriter {
    * <ul>
    * <li>If set to "false":
    *
-   * <pre>
+   * <blockquote><pre>
    * SELECT
    *     A as A
    *         B as B
    *         C as C
    *     D
-   * </pre>
+   * </pre></blockquote>
+   *
    * <li>If set to "true":
    *
-   * <pre>
+   * <blockquote><pre>
    * SELECT
    *     A as A
    *     B as B
    *     C as C
    *     D
-   * </pre>
+   * </pre></blockquote>
    * </ul>
    */
   public void setSelectListExtraIndentFlag(boolean b) {
@@ -454,6 +460,7 @@ public class SqlPrettyWriter implements SqlWriter {
 
       switch (frameTypeEnum) {
       case WINDOW_DECL_LIST:
+      case VALUES:
         return new FrameImpl(
             frameType,
             keyword,
@@ -511,7 +518,7 @@ public class SqlPrettyWriter implements SqlWriter {
             false);
 
       case SUB_QUERY:
-        switch (subqueryStyle) {
+        switch (subQueryStyle) {
         case BLACK:
 
           // Generate, e.g.:
@@ -558,7 +565,7 @@ public class SqlPrettyWriter implements SqlWriter {
             }
           };
         default:
-          throw Util.unexpected(subqueryStyle);
+          throw Util.unexpected(subQueryStyle);
         }
 
       case ORDER_BY:
@@ -762,10 +769,8 @@ public class SqlPrettyWriter implements SqlWriter {
 
   public void endList(Frame frame) {
     FrameImpl endedFrame = (FrameImpl) frame;
-    Util.pre(
-        frame == this.frame,
-        "Frame " + endedFrame.frameType
-            + " does not match current frame " + this.frame.frameType);
+    Preconditions.checkArgument(frame == this.frame,
+        "Frame does not match current frame");
     if (this.frame == null) {
       throw new RuntimeException("No list started");
     }
@@ -807,7 +812,9 @@ public class SqlPrettyWriter implements SqlWriter {
   }
 
   public SqlString toSqlString() {
-    return new SqlBuilder(dialect, toString()).toSqlString();
+    ImmutableList<Integer> dynamicParameters =
+        this.dynamicParameters == null ? null : this.dynamicParameters.build();
+    return new SqlString(dialect, toString(), dynamicParameters);
   }
 
   public SqlDialect getDialect() {
@@ -822,7 +829,9 @@ public class SqlPrettyWriter implements SqlWriter {
   public void keyword(String s) {
     maybeWhitespace(s);
     pw.print(
-        isKeywordsLowerCase() ? s.toLowerCase() : s.toUpperCase());
+        isKeywordsLowerCase()
+            ? s.toLowerCase(Locale.ROOT)
+            : s.toUpperCase(Locale.ROOT));
     charCount += s.length();
     if (!s.equals("")) {
       setNeedWhitespace(needWhitespaceAfter(s));
@@ -876,12 +885,6 @@ public class SqlPrettyWriter implements SqlWriter {
   }
 
   public void print(String s) {
-    if (s.equals("(")) {
-      throw new RuntimeException("Use 'startList'");
-    }
-    if (s.equals(")")) {
-      throw new RuntimeException("Use 'endList'");
-    }
     maybeWhitespace(s);
     pw.print(s);
     charCount += s.length();
@@ -893,10 +896,11 @@ public class SqlPrettyWriter implements SqlWriter {
     charCount += String.valueOf(x).length();
   }
 
-  public void identifier(String name) {
+  public void identifier(String name, boolean quoted) {
     String qName = name;
-    if (isQuoteAllIdentifiers()
-        || dialect.identifierNeedsToBeQuoted(name)) {
+    // If configured globally or the original identifier is quoted,
+    // then quotes the identifier.
+    if (isQuoteAllIdentifiers() || quoted) {
       qName = dialect.quoteIdentifier(name);
     }
     maybeWhitespace(qName);
@@ -905,51 +909,27 @@ public class SqlPrettyWriter implements SqlWriter {
     setNeedWhitespace(true);
   }
 
+  @Override public void dynamicParam(int index) {
+    if (dynamicParameters == null) {
+      dynamicParameters = ImmutableList.builder();
+    }
+    dynamicParameters.add(index);
+    print("?");
+    setNeedWhitespace(true);
+  }
+
   public void fetchOffset(SqlNode fetch, SqlNode offset) {
     if (fetch == null && offset == null) {
       return;
     }
-    if (dialect.supportsOffsetFetch()) {
-      if (offset != null) {
-        this.newlineAndIndent();
-        final Frame offsetFrame =
-            this.startList(FrameTypeEnum.OFFSET);
-        this.keyword("OFFSET");
-        offset.unparse(this, -1, -1);
-        this.keyword("ROWS");
-        this.endList(offsetFrame);
-      }
-      if (fetch != null) {
-        this.newlineAndIndent();
-        final Frame fetchFrame =
-            this.startList(FrameTypeEnum.FETCH);
-        this.keyword("FETCH");
-        this.keyword("NEXT");
-        fetch.unparse(this, -1, -1);
-        this.keyword("ROWS");
-        this.keyword("ONLY");
-        this.endList(fetchFrame);
-      }
-    } else {
-      // Dialect does not support OFFSET/FETCH clause.
-      // Assume it uses LIMIT/OFFSET.
-      if (fetch != null) {
-        this.newlineAndIndent();
-        final Frame fetchFrame =
-            this.startList(FrameTypeEnum.FETCH);
-        this.keyword("LIMIT");
-        fetch.unparse(this, -1, -1);
-        this.endList(fetchFrame);
-      }
-      if (offset != null) {
-        this.newlineAndIndent();
-        final Frame offsetFrame =
-            this.startList(FrameTypeEnum.OFFSET);
-        this.keyword("OFFSET");
-        offset.unparse(this, -1, -1);
-        this.endList(offsetFrame);
-      }
+    dialect.unparseOffsetFetch(this, offset, fetch);
+  }
+
+  public void topN(SqlNode fetch, SqlNode offset) {
+    if (fetch == null && offset == null) {
+      return;
     }
+    dialect.unparseTopN(this, offset, fetch);
   }
 
   public Frame startFunCall(String funName) {
@@ -1149,7 +1129,7 @@ public class SqlPrettyWriter implements SqlWriter {
     }
 
     private String stripPrefix(String name, int offset) {
-      return name.substring(offset, offset + 1).toLowerCase()
+      return name.substring(offset, offset + 1).toLowerCase(Locale.ROOT)
           + name.substring(offset + 1);
     }
 
@@ -1158,7 +1138,8 @@ public class SqlPrettyWriter implements SqlWriter {
       try {
         method.invoke(o, value);
       } catch (IllegalAccessException | InvocationTargetException e) {
-        throw Throwables.propagate(e);
+        Util.throwIfUnchecked(e.getCause());
+        throw new RuntimeException(e.getCause());
       }
     }
 
@@ -1167,7 +1148,8 @@ public class SqlPrettyWriter implements SqlWriter {
       try {
         return method.invoke(o);
       } catch (IllegalAccessException | InvocationTargetException e) {
-        throw Throwables.propagate(e);
+        Util.throwIfUnchecked(e.getCause());
+        throw new RuntimeException(e.getCause());
       }
     }
 
@@ -1175,7 +1157,7 @@ public class SqlPrettyWriter implements SqlWriter {
       final Set<String> names = new HashSet<>();
       names.addAll(getterMethods.keySet());
       names.addAll(setterMethods.keySet());
-      return names.toArray(new String[names.size()]);
+      return names.toArray(new String[0]);
     }
   }
 }

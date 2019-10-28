@@ -47,8 +47,7 @@ enum CsvFieldType {
   private final Class clazz;
   private final String simpleName;
 
-  private static final Map<String, CsvFieldType> MAP =
-    new HashMap<String, CsvFieldType>();
+  private static final Map<String, CsvFieldType> MAP = new HashMap<>();
 
   static {
     for (CsvFieldType value : values()) {
@@ -57,7 +56,7 @@ enum CsvFieldType {
   }
 
   CsvFieldType(Primitive primitive) {
-    this(primitive.boxClass, primitive.primitiveClass.getSimpleName());
+    this(primitive.boxClass, primitive.primitiveName);
   }
 
   CsvFieldType(Class clazz, String simpleName) {
@@ -66,7 +65,9 @@ enum CsvFieldType {
   }
 
   public RelDataType toType(JavaTypeFactory typeFactory) {
-    return typeFactory.createJavaType(clazz);
+    RelDataType javaType = typeFactory.createJavaType(clazz);
+    RelDataType sqlType = typeFactory.createSqlType(javaType.getSqlTypeName());
+    return typeFactory.createTypeWithNullability(sqlType, true);
   }
 
   public static CsvFieldType of(String typeString) {

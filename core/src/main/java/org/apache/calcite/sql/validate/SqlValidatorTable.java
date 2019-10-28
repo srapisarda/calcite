@@ -17,7 +17,9 @@
 package org.apache.calcite.sql.validate;
 
 import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.schema.Wrapper;
 import org.apache.calcite.sql.SqlAccessType;
+import org.apache.calcite.sql2rel.InitializerContext;
 
 import java.util.List;
 
@@ -26,7 +28,8 @@ import java.util.List;
  *
  * @see SqlValidatorCatalogReader
  */
-public interface SqlValidatorTable {
+public interface SqlValidatorTable extends Wrapper {
+
   //~ Methods ----------------------------------------------------------------
 
   RelDataType getRowType();
@@ -44,6 +47,19 @@ public interface SqlValidatorTable {
   SqlAccessType getAllowedAccess();
 
   boolean supportsModality(SqlModality modality);
+
+  /**
+   * Returns whether the table is temporal.
+   */
+  boolean isTemporal();
+
+  /**
+   * Returns whether the ordinal column has a default value.
+   */
+  @Deprecated // to be removed before 2.0
+  boolean columnHasDefaultValue(RelDataType rowType, int ordinal,
+      InitializerContext initializerContext);
+
 }
 
 // End SqlValidatorTable.java

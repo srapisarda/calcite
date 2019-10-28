@@ -28,10 +28,10 @@ import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.schema.FilterableTable;
 import org.apache.calcite.schema.Statistic;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.util.Source;
 
-import java.io.File;
-import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Table based on a CSV file that can implement simple filtering.
@@ -52,23 +52,23 @@ public class CsvFilterableTable extends CsvTable
 
   public Enumerable<Object[]> scan(DataContext root, List<RexNode> filters) {
     final String[] filterValues = new String[fieldTypes.size()];
-    for (final Iterator<RexNode> i = filters.iterator(); i.hasNext();) {
-      final RexNode filter = i.next();
-      if (addFilter(filter, filterValues)) {
-        i.remove();
-      }
-    }
+    filters.removeIf(filter -> addFilter(filter, filterValues));
     final int[] fields = CsvEnumerator.identityList(fieldTypes.size());
+    final AtomicBoolean cancelFlag = DataContext.Variable.CANCEL_FLAG.get(root);
     return new AbstractEnumerable<Object[]>() {
       public Enumerator<Object[]> enumerator() {
-        return new CsvEnumerator<Object[]>(file, filterValues,
+        return new CsvEnumerator<>(source, cancelFlag, false, filterValues,
             new CsvEnumerator.ArrayRowConverter(fieldTypes, fields));
       }
     };
   }
 
   private boolean addFilter(RexNode filter, Object[] filterValues) {
-    if (filter.isA(SqlKind.EQUALS)) {
+    if (filter.isA(SqlKind.AND)) {
+        // We cannot refine(remove) the operands of AND,
+        // it will cause o.a.c.i.TableScanNode.createFilterable filters check failed.
+      ((RexCall) filter).getOperands().forEach(subFilter -> addFilter(subFilter, filterValues));
+    } else if (filter.isA(SqlKind.EQUALS)) {
       final RexCall call = (RexCall) filter;
       RexNode left = call.getOperands().get(0);
       if (left.isA(SqlKind.CAST)) {

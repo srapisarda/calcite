@@ -37,13 +37,11 @@ import java.util.Map;
 public class RelJsonWriter implements RelWriter {
   //~ Instance fields ----------------------------------------------------------
 
-  private final JsonBuilder jsonBuilder;
-  private final RelJson relJson;
-  private final Map<RelNode, String> relIdMap =
-      new IdentityHashMap<RelNode, String>();
-  private final List<Object> relList;
-  private final List<Pair<String, Object>> values =
-      new ArrayList<Pair<String, Object>>();
+  protected final JsonBuilder jsonBuilder;
+  protected final RelJson relJson;
+  private final Map<RelNode, String> relIdMap = new IdentityHashMap<>();
+  protected final List<Object> relList;
+  private final List<Pair<String, Object>> values = new ArrayList<>();
   private String previousId;
 
   //~ Constructors -------------------------------------------------------------
@@ -106,10 +104,6 @@ public class RelJsonWriter implements RelWriter {
     return SqlExplainLevel.ALL_ATTRIBUTES;
   }
 
-  public RelWriter input(String term, RelNode input) {
-    return this;
-  }
-
   public RelWriter item(String term, Object value) {
     values.add(Pair.of(term, value));
     return this;
@@ -122,16 +116,9 @@ public class RelJsonWriter implements RelWriter {
         return (List<Object>) value.right;
       }
     }
-    final List<Object> list = new ArrayList<Object>();
+    final List<Object> list = new ArrayList<>();
     values.add(Pair.of(tag, (Object) list));
     return list;
-  }
-
-  public RelWriter itemIf(String term, Object value, boolean condition) {
-    if (condition) {
-      item(term, value);
-    }
-    return this;
   }
 
   public RelWriter done(RelNode node) {
@@ -142,7 +129,7 @@ public class RelJsonWriter implements RelWriter {
     return this;
   }
 
-  public boolean nest() {
+  @Override public boolean nest() {
     return true;
   }
 

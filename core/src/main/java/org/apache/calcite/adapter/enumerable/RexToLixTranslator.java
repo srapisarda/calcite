@@ -22,12 +22,15 @@ import org.apache.calcite.avatica.util.ByteString;
 import org.apache.calcite.avatica.util.DateTimeUtils;
 import org.apache.calcite.linq4j.function.Function1;
 import org.apache.calcite.linq4j.tree.BlockBuilder;
+import org.apache.calcite.linq4j.tree.CatchBlock;
 import org.apache.calcite.linq4j.tree.ConstantExpression;
 import org.apache.calcite.linq4j.tree.Expression;
 import org.apache.calcite.linq4j.tree.ExpressionType;
 import org.apache.calcite.linq4j.tree.Expressions;
 import org.apache.calcite.linq4j.tree.ParameterExpression;
 import org.apache.calcite.linq4j.tree.Primitive;
+import org.apache.calcite.linq4j.tree.Statement;
+import org.apache.calcite.linq4j.tree.Types;
 import org.apache.calcite.linq4j.tree.UnaryExpression;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactoryImpl;
@@ -45,12 +48,15 @@ import org.apache.calcite.runtime.SqlFunctions;
 import org.apache.calcite.sql.SqlIntervalQualifier;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlOperator;
+import org.apache.calcite.sql.fun.SqlStdOperatorTable;
+import org.apache.calcite.sql.type.SqlTypeUtil;
+import org.apache.calcite.sql.validate.SqlConformance;
 import org.apache.calcite.util.BuiltInMethod;
 import org.apache.calcite.util.ControlFlowException;
-import org.apache.calcite.util.NlsString;
 import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.Util;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.lang.reflect.Method;
@@ -58,13 +64,13 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
-import static org.apache.calcite.sql.fun.OracleSqlOperatorTable.TRANSLATE3;
+import static org.apache.calcite.sql.fun.SqlLibraryOperators.TRANSLATE3;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.CHARACTER_LENGTH;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.CHAR_LENGTH;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.SUBSTRING;
@@ -76,7 +82,7 @@ import static org.apache.calcite.sql.fun.SqlStdOperatorTable.UPPER;
  */
 public class RexToLixTranslator {
   public static final Map<Method, SqlOperator> JAVA_TO_SQL_METHOD_MAP =
-      Util.<Method, SqlOperator>mapOf(
+      Util.mapOf(
           findMethod(String.class, "toUpperCase"), UPPER,
           findMethod(
               SqlFunctions.class, "substring", String.class, Integer.TYPE,
@@ -91,8 +97,9 @@ public class RexToLixTranslator {
   final JavaTypeFactory typeFactory;
   final RexBuilder builder;
   private final RexProgram program;
+  final SqlConformance conformance;
   private final Expression root;
-  private final RexToLixTranslator.InputGetter inputGetter;
+  final RexToLixTranslator.InputGetter inputGetter;
   private final BlockBuilder list;
   private final Map<? extends RexNode, Boolean> exprNullableMap;
   private final RexToLixTranslator parent;
@@ -107,57 +114,26 @@ public class RexToLixTranslator {
     }
   }
 
-  private RexToLixTranslator(RexProgram program, JavaTypeFactory typeFactory,
-      Expression root, InputGetter inputGetter, BlockBuilder list) {
-    this(program, typeFactory, root, inputGetter, list,
-        Collections.<RexNode, Boolean>emptyMap(),
-        new RexBuilder(typeFactory));
-  }
-
-  private RexToLixTranslator(
-      RexProgram program,
-      JavaTypeFactory typeFactory,
-      Expression root,
-      InputGetter inputGetter,
-      BlockBuilder list,
-      Map<RexNode, Boolean> exprNullableMap,
-      RexBuilder builder) {
-    this(program, typeFactory, root, inputGetter, list, exprNullableMap,
-        builder, null);
-  }
-
-  private RexToLixTranslator(
-      RexProgram program,
+  private RexToLixTranslator(RexProgram program,
       JavaTypeFactory typeFactory,
       Expression root,
       InputGetter inputGetter,
       BlockBuilder list,
       Map<? extends RexNode, Boolean> exprNullableMap,
       RexBuilder builder,
-      RexToLixTranslator parent) {
-    this(program, typeFactory, root, inputGetter, list, exprNullableMap,
-        builder, parent, null);
-  }
-
-  private RexToLixTranslator(
-      RexProgram program,
-      JavaTypeFactory typeFactory,
-      Expression root,
-      InputGetter inputGetter,
-      BlockBuilder list,
-      Map<? extends RexNode, Boolean> exprNullableMap,
-      RexBuilder builder,
+      SqlConformance conformance,
       RexToLixTranslator parent,
       Function1<String, InputGetter> correlates) {
-    this.program = program;
-    this.typeFactory = typeFactory;
-    this.root = root;
+    this.program = program; // may be null
+    this.typeFactory = Objects.requireNonNull(typeFactory);
+    this.conformance = Objects.requireNonNull(conformance);
+    this.root = Objects.requireNonNull(root);
     this.inputGetter = inputGetter;
-    this.list = list;
-    this.exprNullableMap = exprNullableMap;
-    this.builder = builder;
-    this.parent = parent;
-    this.correlates = correlates;
+    this.list = Objects.requireNonNull(list);
+    this.exprNullableMap = Objects.requireNonNull(exprNullableMap);
+    this.builder = Objects.requireNonNull(builder);
+    this.parent = parent; // may be null
+    this.correlates = correlates; // may be null
   }
 
   /**
@@ -166,6 +142,7 @@ public class RexToLixTranslator {
    *
    * @param program Program to be translated
    * @param typeFactory Type factory
+   * @param conformance SQL conformance
    * @param list List of statements, populated with declarations
    * @param outputPhysType Output type, or null
    * @param root Root expression
@@ -175,12 +152,9 @@ public class RexToLixTranslator {
    * @return Sequence of expressions, optional condition
    */
   public static List<Expression> translateProjects(RexProgram program,
-      JavaTypeFactory typeFactory,
-      BlockBuilder list,
-      PhysType outputPhysType,
-      Expression root,
-      InputGetter inputGetter,
-      Function1<String, InputGetter> correlates) {
+      JavaTypeFactory typeFactory, SqlConformance conformance,
+      BlockBuilder list, PhysType outputPhysType, Expression root,
+      InputGetter inputGetter, Function1<String, InputGetter> correlates) {
     List<Type> storageTypes = null;
     if (outputPhysType != null) {
       final RelDataType rowType = outputPhysType.getRowType();
@@ -189,16 +163,20 @@ public class RexToLixTranslator {
         storageTypes.add(outputPhysType.getJavaFieldType(i));
       }
     }
-    return new RexToLixTranslator(program, typeFactory, root, inputGetter, list)
+    return new RexToLixTranslator(program, typeFactory, root, inputGetter,
+        list, Collections.emptyMap(), new RexBuilder(typeFactory), conformance,
+        null, null)
         .setCorrelates(correlates)
         .translateList(program.getProjectList(), storageTypes);
   }
 
   /** Creates a translator for translating aggregate functions. */
   public static RexToLixTranslator forAggregation(JavaTypeFactory typeFactory,
-      BlockBuilder list, InputGetter inputGetter) {
+      BlockBuilder list, InputGetter inputGetter, SqlConformance conformance) {
     final ParameterExpression root = DataContext.ROOT;
-    return new RexToLixTranslator(null, typeFactory, root, inputGetter, list);
+    return new RexToLixTranslator(null, typeFactory, root, inputGetter, list,
+        Collections.emptyMap(), new RexBuilder(typeFactory), conformance, null,
+        null);
   }
 
   Expression translate(RexNode expr) {
@@ -246,6 +224,14 @@ public class RexToLixTranslator {
             Expressions.call(BuiltInMethod.FLOOR_DIV.method,
                 operand, Expressions.constant(DateTimeUtils.MILLIS_PER_DAY)),
             int.class);
+        break;
+      case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+        convert = RexImpTable.optimize2(
+            operand,
+            Expressions.call(
+                BuiltInMethod.TIMESTAMP_WITH_LOCAL_TIME_ZONE_TO_DATE.method,
+                operand,
+                Expressions.call(BuiltInMethod.TIME_ZONE.method, root)));
       }
       break;
     case TIME:
@@ -255,6 +241,14 @@ public class RexToLixTranslator {
         convert =
             Expressions.call(BuiltInMethod.STRING_TO_TIME.method, operand);
         break;
+      case TIME_WITH_LOCAL_TIME_ZONE:
+        convert = RexImpTable.optimize2(
+            operand,
+            Expressions.call(
+                BuiltInMethod.TIME_WITH_LOCAL_TIME_ZONE_TO_TIME.method,
+                operand,
+                Expressions.call(BuiltInMethod.TIME_ZONE.method, root)));
+        break;
       case TIMESTAMP:
         convert = Expressions.convert_(
             Expressions.call(
@@ -262,6 +256,49 @@ public class RexToLixTranslator {
                 operand,
                 Expressions.constant(DateTimeUtils.MILLIS_PER_DAY)),
             int.class);
+        break;
+      case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+        convert = RexImpTable.optimize2(
+            operand,
+            Expressions.call(
+                BuiltInMethod.TIMESTAMP_WITH_LOCAL_TIME_ZONE_TO_TIME.method,
+                operand,
+                Expressions.call(BuiltInMethod.TIME_ZONE.method, root)));
+      }
+      break;
+    case TIME_WITH_LOCAL_TIME_ZONE:
+      switch (sourceType.getSqlTypeName()) {
+      case CHAR:
+      case VARCHAR:
+        convert =
+            Expressions.call(BuiltInMethod.STRING_TO_TIME_WITH_LOCAL_TIME_ZONE.method, operand);
+        break;
+      case TIME:
+        convert = Expressions.call(
+            BuiltInMethod.TIME_STRING_TO_TIME_WITH_LOCAL_TIME_ZONE.method,
+            RexImpTable.optimize2(
+                operand,
+                Expressions.call(
+                    BuiltInMethod.UNIX_TIME_TO_STRING.method,
+                    operand)),
+            Expressions.call(BuiltInMethod.TIME_ZONE.method, root));
+        break;
+      case TIMESTAMP:
+        convert = Expressions.call(
+            BuiltInMethod.TIMESTAMP_STRING_TO_TIMESTAMP_WITH_LOCAL_TIME_ZONE.method,
+            RexImpTable.optimize2(
+                operand,
+                Expressions.call(
+                    BuiltInMethod.UNIX_TIMESTAMP_TO_STRING.method,
+                    operand)),
+            Expressions.call(BuiltInMethod.TIME_ZONE.method, root));
+        break;
+      case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+        convert = RexImpTable.optimize2(
+            operand,
+            Expressions.call(
+                BuiltInMethod.TIMESTAMP_WITH_LOCAL_TIME_ZONE_TO_TIME_WITH_LOCAL_TIME_ZONE.method,
+                operand));
       }
       break;
     case TIMESTAMP:
@@ -286,6 +323,82 @@ public class RexToLixTranslator {
                     Expressions.constant(DateTimeUtils.MILLIS_PER_DAY)),
                 Expressions.convert_(operand, long.class));
         break;
+      case TIME_WITH_LOCAL_TIME_ZONE:
+        convert = RexImpTable.optimize2(
+            operand,
+            Expressions.call(
+                BuiltInMethod.TIME_WITH_LOCAL_TIME_ZONE_TO_TIMESTAMP.method,
+                Expressions.call(
+                    BuiltInMethod.UNIX_DATE_TO_STRING.method,
+                    Expressions.call(BuiltInMethod.CURRENT_DATE.method, root)),
+                operand,
+                Expressions.call(BuiltInMethod.TIME_ZONE.method, root)));
+        break;
+      case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+        convert = RexImpTable.optimize2(
+            operand,
+            Expressions.call(
+                BuiltInMethod.TIMESTAMP_WITH_LOCAL_TIME_ZONE_TO_TIMESTAMP.method,
+                operand,
+                Expressions.call(BuiltInMethod.TIME_ZONE.method, root)));
+      }
+      break;
+    case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+      switch (sourceType.getSqlTypeName()) {
+      case CHAR:
+      case VARCHAR:
+        convert =
+            Expressions.call(
+                BuiltInMethod.STRING_TO_TIMESTAMP_WITH_LOCAL_TIME_ZONE.method,
+                operand);
+        break;
+      case DATE:
+        convert = Expressions.call(
+            BuiltInMethod.TIMESTAMP_STRING_TO_TIMESTAMP_WITH_LOCAL_TIME_ZONE.method,
+            RexImpTable.optimize2(
+                operand,
+                Expressions.call(
+                    BuiltInMethod.UNIX_TIMESTAMP_TO_STRING.method,
+                    Expressions.multiply(
+                        Expressions.convert_(operand, long.class),
+                        Expressions.constant(DateTimeUtils.MILLIS_PER_DAY)))),
+            Expressions.call(BuiltInMethod.TIME_ZONE.method, root));
+        break;
+      case TIME:
+        convert = Expressions.call(
+            BuiltInMethod.TIMESTAMP_STRING_TO_TIMESTAMP_WITH_LOCAL_TIME_ZONE.method,
+            RexImpTable.optimize2(
+                operand,
+                Expressions.call(
+                    BuiltInMethod.UNIX_TIMESTAMP_TO_STRING.method,
+                    Expressions.add(
+                        Expressions.multiply(
+                            Expressions.convert_(
+                                Expressions.call(BuiltInMethod.CURRENT_DATE.method, root),
+                                long.class),
+                            Expressions.constant(DateTimeUtils.MILLIS_PER_DAY)),
+                        Expressions.convert_(operand, long.class)))),
+            Expressions.call(BuiltInMethod.TIME_ZONE.method, root));
+        break;
+      case TIME_WITH_LOCAL_TIME_ZONE:
+        convert = RexImpTable.optimize2(
+            operand,
+            Expressions.call(
+                BuiltInMethod.TIME_WITH_LOCAL_TIME_ZONE_TO_TIMESTAMP_WITH_LOCAL_TIME_ZONE.method,
+                Expressions.call(
+                    BuiltInMethod.UNIX_DATE_TO_STRING.method,
+                    Expressions.call(BuiltInMethod.CURRENT_DATE.method, root)),
+                operand));
+        break;
+      case TIMESTAMP:
+        convert = Expressions.call(
+            BuiltInMethod.TIMESTAMP_STRING_TO_TIMESTAMP_WITH_LOCAL_TIME_ZONE.method,
+            RexImpTable.optimize2(
+                operand,
+                Expressions.call(
+                    BuiltInMethod.UNIX_TIMESTAMP_TO_STRING.method,
+                    operand)),
+            Expressions.call(BuiltInMethod.TIME_ZONE.method, root));
       }
       break;
     case BOOLEAN:
@@ -316,6 +429,14 @@ public class RexToLixTranslator {
                 BuiltInMethod.UNIX_TIME_TO_STRING.method,
                 operand));
         break;
+      case TIME_WITH_LOCAL_TIME_ZONE:
+        convert = RexImpTable.optimize2(
+            operand,
+            Expressions.call(
+                BuiltInMethod.TIME_WITH_LOCAL_TIME_ZONE_TO_STRING.method,
+                operand,
+                Expressions.call(BuiltInMethod.TIME_ZONE.method, root)));
+        break;
       case TIMESTAMP:
         convert = RexImpTable.optimize2(
             operand,
@@ -323,7 +444,17 @@ public class RexToLixTranslator {
                 BuiltInMethod.UNIX_TIMESTAMP_TO_STRING.method,
                 operand));
         break;
+      case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+        convert = RexImpTable.optimize2(
+            operand,
+            Expressions.call(
+                BuiltInMethod.TIMESTAMP_WITH_LOCAL_TIME_ZONE_TO_STRING.method,
+                operand,
+                Expressions.call(BuiltInMethod.TIME_ZONE.method, root)));
+        break;
+      case INTERVAL_YEAR:
       case INTERVAL_YEAR_MONTH:
+      case INTERVAL_MONTH:
         convert = RexImpTable.optimize2(
             operand,
             Expressions.call(
@@ -331,7 +462,16 @@ public class RexToLixTranslator {
                 operand,
                 Expressions.constant(interval.timeUnitRange)));
         break;
-      case INTERVAL_DAY_TIME:
+      case INTERVAL_DAY:
+      case INTERVAL_DAY_HOUR:
+      case INTERVAL_DAY_MINUTE:
+      case INTERVAL_DAY_SECOND:
+      case INTERVAL_HOUR:
+      case INTERVAL_HOUR_MINUTE:
+      case INTERVAL_HOUR_SECOND:
+      case INTERVAL_MINUTE:
+      case INTERVAL_MINUTE_SECOND:
+      case INTERVAL_SECOND:
         convert = RexImpTable.optimize2(
             operand,
             Expressions.call(
@@ -374,15 +514,13 @@ public class RexToLixTranslator {
         case VARBINARY:
           // If this is a widening cast, no need to truncate.
           final int sourcePrecision = sourceType.getPrecision();
-          if (sourcePrecision < 0
-              || sourcePrecision >= 0
-              && sourcePrecision <= targetPrecision) {
+          if (SqlTypeUtil.comparePrecision(sourcePrecision, targetPrecision)
+              <= 0) {
             truncate = false;
           }
           // If this is a widening cast, no need to pad.
-          if (sourcePrecision < 0
-              || sourcePrecision >= 0
-              && sourcePrecision >= targetPrecision) {
+          if (SqlTypeUtil.comparePrecision(sourcePrecision, targetPrecision)
+              >= 0) {
             pad = false;
           }
           // fall through
@@ -413,8 +551,104 @@ public class RexToLixTranslator {
                     (long) Math.pow(10, 3 - targetScale)));
       }
       break;
+    case INTERVAL_YEAR:
+    case INTERVAL_YEAR_MONTH:
+    case INTERVAL_MONTH:
+    case INTERVAL_DAY:
+    case INTERVAL_DAY_HOUR:
+    case INTERVAL_DAY_MINUTE:
+    case INTERVAL_DAY_SECOND:
+    case INTERVAL_HOUR:
+    case INTERVAL_HOUR_MINUTE:
+    case INTERVAL_HOUR_SECOND:
+    case INTERVAL_MINUTE:
+    case INTERVAL_MINUTE_SECOND:
+    case INTERVAL_SECOND:
+      switch (sourceType.getSqlTypeName().getFamily()) {
+      case NUMERIC:
+        final BigDecimal multiplier = targetType.getSqlTypeName().getEndUnit().multiplier;
+        final BigDecimal divider = BigDecimal.ONE;
+        convert = RexImpTable.multiplyDivide(convert, multiplier, divider);
+      }
     }
-    return convert;
+    return scaleIntervalToNumber(sourceType, targetType, convert);
+  }
+
+  private Expression handleNullUnboxingIfNecessary(
+      Expression input,
+      RexImpTable.NullAs nullAs,
+      Type storageType) {
+    if (RexImpTable.NullAs.NOT_POSSIBLE == nullAs && input.type.equals(storageType)) {
+      // When we asked for not null input that would be stored as box, avoid
+      // unboxing which may occur in the handleNull method below.
+      return input;
+    }
+    return handleNull(input, nullAs);
+  }
+
+  /** Adapts an expression with "normal" result to one that adheres to
+   * this particular policy. Wraps the result expression into a new
+   * parameter if need be.
+   *
+   * @param input Expression
+   * @param nullAs If false, if expression is definitely not null at
+   *   runtime. Therefore we can optimize. For example, we can cast to int
+   *   using x.intValue().
+   * @return Translated expression
+   */
+  public Expression handleNull(Expression input, RexImpTable.NullAs nullAs) {
+    final Expression nullHandled = nullAs.handle(input);
+
+    // If we get ConstantExpression, just return it (i.e. primitive false)
+    if (nullHandled instanceof ConstantExpression) {
+      return nullHandled;
+    }
+
+    // if nullHandled expression is the same as "input",
+    // then we can just reuse it
+    if (nullHandled == input) {
+      return input;
+    }
+
+    // If nullHandled is different, then it might be unsafe to compute
+    // early (i.e. unbox of null value should not happen _before_ ternary).
+    // Thus we wrap it into brand-new ParameterExpression,
+    // and we are guaranteed that ParameterExpression will not be shared
+    String unboxVarName = "v_unboxed";
+    if (input instanceof ParameterExpression) {
+      unboxVarName = ((ParameterExpression) input).name + "_unboxed";
+    }
+    ParameterExpression unboxed = Expressions.parameter(nullHandled.getType(),
+        list.newName(unboxVarName));
+    list.add(Expressions.declare(Modifier.FINAL, unboxed, nullHandled));
+
+    return unboxed;
+  }
+
+  /**
+   * Handle checked Exceptions declared in Method. In such case,
+   * method call should be wrapped in a try...catch block.
+   * "
+   *      final Type method_call;
+   *      try {
+   *        method_call = callExpr
+   *      } catch (Exception e) {
+   *        throw new RuntimeException(e);
+   *      }
+   * "
+   */
+  Expression handleMethodCheckedExceptions(Expression callExpr) {
+    // Try statement
+    ParameterExpression methodCall = Expressions.parameter(
+        callExpr.getType(), list.newName("method_call"));
+    list.add(Expressions.declare(Modifier.FINAL, methodCall, null));
+    Statement st = Expressions.statement(Expressions.assign(methodCall, callExpr));
+    // Catch Block, wrap checked exception in unchecked exception
+    ParameterExpression e = Expressions.parameter(0, Exception.class, "e");
+    Expression uncheckedException = Expressions.new_(RuntimeException.class, e);
+    CatchBlock cb = Expressions.catch_(e, Expressions.throw_(uncheckedException));
+    list.add(Expressions.tryCatch(st, cb));
+    return methodCall;
   }
 
   /** Translates an expression that is not in the cache.
@@ -432,42 +666,21 @@ public class RexToLixTranslator {
     }
     switch (expr.getKind()) {
     case INPUT_REF:
+    {
       final int index = ((RexInputRef) expr).getIndex();
       Expression x = inputGetter.field(list, index, storageType);
 
       Expression input = list.append("inp" + index + "_", x); // safe to share
-      if (nullAs == RexImpTable.NullAs.NOT_POSSIBLE
-          && input.type.equals(storageType)) {
-        // When we asked for not null input that would be stored as box, avoid
-        // unboxing via nullAs.handle below.
-        return input;
-      }
-      Expression nullHandled = nullAs.handle(input);
+      return handleNullUnboxingIfNecessary(input, nullAs, storageType);
+    }
+    case PATTERN_INPUT_REF:
+    {
+      final int index = ((RexInputRef) expr).getIndex();
+      Expression x = inputGetter.field(list, index, storageType);
 
-      // If we get ConstantExpression, just return it (i.e. primitive false)
-      if (nullHandled instanceof ConstantExpression) {
-        return nullHandled;
-      }
-
-      // if nullHandled expression is the same as "input",
-      // then we can just reuse it
-      if (nullHandled == input) {
-        return input;
-      }
-
-      // If nullHandled is different, then it might be unsafe to compute
-      // early (i.e. unbox of null value should not happen _before_ ternary).
-      // Thus we wrap it into brand-new ParameterExpression,
-      // and we are guaranteed that ParameterExpression will not be shared
-      String unboxVarName = "v_unboxed";
-      if (input instanceof ParameterExpression) {
-        unboxVarName = ((ParameterExpression) input).name + "_unboxed";
-      }
-      ParameterExpression unboxed = Expressions.parameter(nullHandled.getType(),
-          list.newName(unboxVarName));
-      list.add(Expressions.declare(Modifier.FINAL, unboxed, nullHandled));
-
-      return unboxed;
+      Expression input = list.append("inp" + index + "_", x); // safe to share
+      return handleNullUnboxingIfNecessary(input, nullAs, storageType);
+    }
     case LOCAL_REF:
       return translate(
           deref(expr),
@@ -487,21 +700,32 @@ public class RexToLixTranslator {
     case CORREL_VARIABLE:
       throw new RuntimeException("Cannot translate " + expr + ". Correlated"
           + " variables should always be referenced by field access");
-    case FIELD_ACCESS:
+    case FIELD_ACCESS: {
       RexFieldAccess fieldAccess = (RexFieldAccess) expr;
       RexNode target = deref(fieldAccess.getReferenceExpr());
-      // only $cor.field access is supported
-      if (!(target instanceof RexCorrelVariable)) {
-        throw new RuntimeException(
-            "cannot translate expression " + expr);
+      int fieldIndex = fieldAccess.getField().getIndex();
+      String fieldName = fieldAccess.getField().getName();
+      switch (target.getKind()) {
+      case CORREL_VARIABLE:
+        if (correlates == null) {
+          throw new RuntimeException("Cannot translate " + expr + " since "
+              + "correlate variables resolver is not defined");
+        }
+        InputGetter getter =
+            correlates.apply(((RexCorrelVariable) target).getName());
+        Expression y = getter.field(list, fieldIndex, storageType);
+        Expression input = list.append("corInp" + fieldIndex + "_", y); // safe to share
+        return handleNullUnboxingIfNecessary(input, nullAs, storageType);
+      default:
+        RexNode rxIndex = builder.makeLiteral(fieldIndex, typeFactory.createType(int.class), true);
+        RexNode rxName = builder.makeLiteral(fieldName, typeFactory.createType(String.class), true);
+        RexCall accessCall = (RexCall) builder.makeCall(
+            fieldAccess.getType(),
+            SqlStdOperatorTable.STRUCT_ACCESS,
+            ImmutableList.of(target, rxIndex, rxName));
+        return translateCall(accessCall, nullAs);
       }
-      if (correlates == null) {
-        throw new RuntimeException("Cannot translate " + expr + " since "
-            + "correlate variables resolver is not defined");
-      }
-      InputGetter getter =
-          correlates.apply(((RexCorrelVariable) target).getName());
-      return getter.field(list, fieldAccess.getField().getIndex(), storageType);
+    }
     default:
       if (expr instanceof RexCall) {
         return translateCall((RexCall) expr, nullAs);
@@ -558,8 +782,7 @@ public class RexToLixTranslator {
       RelDataType type,
       JavaTypeFactory typeFactory,
       RexImpTable.NullAs nullAs) {
-    final Comparable value = literal.getValue();
-    if (value == null) {
+    if (literal.isNull()) {
       switch (nullAs) {
       case TRUE:
       case IS_NULL:
@@ -585,51 +808,57 @@ public class RexToLixTranslator {
     final Object value2;
     switch (literal.getType().getSqlTypeName()) {
     case DECIMAL:
+      final BigDecimal bd = literal.getValueAs(BigDecimal.class);
       if (javaClass == float.class) {
-        return Expressions.constant(value, javaClass);
+        return Expressions.constant(bd, javaClass);
+      } else if (javaClass == double.class) {
+        return Expressions.constant(bd, javaClass);
       }
       assert javaClass == BigDecimal.class;
       return Expressions.new_(BigDecimal.class,
-          Expressions.constant(value.toString()));
+          Expressions.constant(bd.toString()));
     case DATE:
-      value2 = (int)
-          (((Calendar) value).getTimeInMillis() / DateTimeUtils.MILLIS_PER_DAY);
-      javaClass = int.class;
-      break;
     case TIME:
-      value2 = (int)
-          (((Calendar) value).getTimeInMillis() % DateTimeUtils.MILLIS_PER_DAY);
+    case TIME_WITH_LOCAL_TIME_ZONE:
+    case INTERVAL_YEAR:
+    case INTERVAL_YEAR_MONTH:
+    case INTERVAL_MONTH:
+      value2 = literal.getValueAs(Integer.class);
       javaClass = int.class;
       break;
     case TIMESTAMP:
-      value2 = ((Calendar) value).getTimeInMillis();
+    case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+    case INTERVAL_DAY:
+    case INTERVAL_DAY_HOUR:
+    case INTERVAL_DAY_MINUTE:
+    case INTERVAL_DAY_SECOND:
+    case INTERVAL_HOUR:
+    case INTERVAL_HOUR_MINUTE:
+    case INTERVAL_HOUR_SECOND:
+    case INTERVAL_MINUTE:
+    case INTERVAL_MINUTE_SECOND:
+    case INTERVAL_SECOND:
+      value2 = literal.getValueAs(Long.class);
       javaClass = long.class;
-      break;
-    case INTERVAL_DAY_TIME:
-      value2 = ((BigDecimal) value).longValue();
-      javaClass = long.class;
-      break;
-    case INTERVAL_YEAR_MONTH:
-      value2 = ((BigDecimal) value).intValue();
-      javaClass = int.class;
       break;
     case CHAR:
     case VARCHAR:
-      value2 = ((NlsString) value).getValue();
+      value2 = literal.getValueAs(String.class);
       break;
     case BINARY:
     case VARBINARY:
       return Expressions.new_(
           ByteString.class,
           Expressions.constant(
-              ((ByteString) value).getBytes(),
+              literal.getValueAs(byte[].class),
               byte[].class));
     case SYMBOL:
-      value2 = value;
-      javaClass = value.getClass();
+      value2 = literal.getValueAs(Enum.class);
+      javaClass = value2.getClass();
       break;
     default:
       final Primitive primitive = Primitive.ofBoxOr(javaClass);
+      final Comparable value = literal.getValueAs(Comparable.class);
       if (primitive != null && value instanceof Number) {
         value2 = primitive.number((Number) value);
       } else {
@@ -711,18 +940,17 @@ public class RexToLixTranslator {
     return list;
   }
 
-  public static Expression translateCondition(
-      RexProgram program,
-      JavaTypeFactory typeFactory,
-      BlockBuilder list,
-      InputGetter inputGetter,
-      Function1<String, InputGetter> correlates) {
+  public static Expression translateCondition(RexProgram program,
+      JavaTypeFactory typeFactory, BlockBuilder list, InputGetter inputGetter,
+      Function1<String, InputGetter> correlates, SqlConformance conformance) {
     if (program.getCondition() == null) {
       return RexImpTable.TRUE_EXPR;
     }
     final ParameterExpression root = DataContext.ROOT;
     RexToLixTranslator translator =
-        new RexToLixTranslator(program, typeFactory, root, inputGetter, list);
+        new RexToLixTranslator(program, typeFactory, root, inputGetter, list,
+            Collections.emptyMap(), new RexBuilder(typeFactory), conformance,
+            null, null);
     translator = translator.setCorrelates(correlates);
     return translator.translate(
         program.getCondition(),
@@ -731,7 +959,12 @@ public class RexToLixTranslator {
 
   public static Expression convert(Expression operand, Type toType) {
     final Type fromType = operand.getType();
-    if (fromType.equals(toType)) {
+    return convert(operand, fromType, toType);
+  }
+
+  public static Expression convert(Expression operand, Type fromType,
+      Type toType) {
+    if (!Types.needTypeCast(fromType, toType)) {
       return operand;
     }
     // E.g. from "Short" to "int".
@@ -818,20 +1051,46 @@ public class RexToLixTranslator {
           return Expressions.box(una.expression, toBox);
         }
       }
-      return Expressions.box(operand, toBox);
+      if (fromType == toBox.primitiveClass) {
+        return Expressions.box(operand, toBox);
+      }
+      // E.g., from "int" to "Byte".
+      // Convert it first and generate "Byte.valueOf((byte)x)"
+      // Because there is no method "Byte.valueOf(int)" in Byte
+      return Expressions.box(
+          Expressions.convert_(operand, toBox.primitiveClass),
+          toBox);
+    } else if (fromType == java.sql.Date.class) {
+      if (toBox == Primitive.INT) {
+        return Expressions.call(BuiltInMethod.DATE_TO_INT.method, operand);
+      } else {
+        return Expressions.convert_(operand, toType);
+      }
     } else if (toType == java.sql.Date.class) {
       // E.g. from "int" or "Integer" to "java.sql.Date",
       // generate "SqlFunctions.internalToDate".
-      return Expressions.call(BuiltInMethod.INTERNAL_TO_DATE.method, operand);
+      if (isA(fromType, Primitive.INT)) {
+        return Expressions.call(BuiltInMethod.INTERNAL_TO_DATE.method, operand);
+      } else {
+        return Expressions.convert_(operand, java.sql.Date.class);
+      }
     } else if (toType == java.sql.Time.class) {
       // E.g. from "int" or "Integer" to "java.sql.Time",
       // generate "SqlFunctions.internalToTime".
-      return Expressions.call(BuiltInMethod.INTERNAL_TO_TIME.method, operand);
+      if (isA(fromType, Primitive.INT)) {
+        return Expressions.call(BuiltInMethod.INTERNAL_TO_TIME.method, operand);
+      } else {
+        return Expressions.convert_(operand, java.sql.Time.class);
+      }
     } else if (toType == java.sql.Timestamp.class) {
       // E.g. from "long" or "Long" to "java.sql.Timestamp",
       // generate "SqlFunctions.internalToTimestamp".
-      return Expressions.call(BuiltInMethod.INTERNAL_TO_TIMESTAMP.method,
-          operand);
+      if (isA(fromType, Primitive.LONG)) {
+        return Expressions.call(BuiltInMethod.INTERNAL_TO_TIMESTAMP.method,
+            operand);
+      } else {
+        return Expressions.convert_(operand, java.sql.Timestamp.class);
+      }
     } else if (toType == BigDecimal.class) {
       if (fromBox != null) {
         // E.g. from "Integer" to "BigDecimal".
@@ -846,8 +1105,13 @@ public class RexToLixTranslator {
       if (fromPrimitive != null) {
         // E.g. from "int" to "BigDecimal".
         // Generate "new BigDecimal(x)"
-        return Expressions.new_(
-            BigDecimal.class, operand);
+        // Fix CALCITE-2325, we should decide null here for int type.
+        return Expressions.condition(
+            Expressions.equal(operand, RexImpTable.NULL_EXPR),
+            RexImpTable.NULL_EXPR,
+            Expressions.new_(
+                BigDecimal.class,
+                operand));
       }
       // E.g. from "Object" to "BigDecimal".
       // Generate "x == null ? null : SqlFunctions.toBigDecimal(x)"
@@ -879,7 +1143,7 @@ public class RexToLixTranslator {
         }
       } else if (fromType == BigDecimal.class) {
         // E.g. from "BigDecimal" to "String"
-        // Generate "x.toString()"
+        // Generate "SqlFunctions.toString(x)"
         return Expressions.condition(
             Expressions.equal(operand, RexImpTable.NULL_EXPR),
             RexImpTable.NULL_EXPR,
@@ -888,17 +1152,30 @@ public class RexToLixTranslator {
                 "toString",
                 operand));
       } else {
-        // E.g. from "BigDecimal" to "String"
-        // Generate "x == null ? null : x.toString()"
-        return Expressions.condition(
-            Expressions.equal(operand, RexImpTable.NULL_EXPR),
-            RexImpTable.NULL_EXPR,
-            Expressions.call(
-                operand,
-                "toString"));
+        Expression result;
+        try {
+          // Try to call "toString()" method
+          // E.g. from "Integer" to "String"
+          // Generate "x == null ? null : x.toString()"
+          result = Expressions.condition(
+              Expressions.equal(operand, RexImpTable.NULL_EXPR),
+              RexImpTable.NULL_EXPR,
+              Expressions.call(operand, "toString"));
+        } catch (RuntimeException e) {
+          // For some special cases, e.g., "BuiltInMethod.LESSER",
+          // its return type is generic ("Comparable"), which contains
+          // no "toString()" method. We fall through to "(String)x".
+          return Expressions.convert_(operand, toType);
+        }
+        return result;
       }
     }
     return Expressions.convert_(operand, toType);
+  }
+
+  static boolean isA(Type fromType, Primitive primitive) {
+    return Primitive.of(fromType) == primitive
+        || Primitive.ofBox(fromType) == primitive;
   }
 
   public Expression translateConstructor(
@@ -991,7 +1268,7 @@ public class RexToLixTranslator {
       return this;
     }
     return new RexToLixTranslator(program, typeFactory, root, inputGetter, list,
-        nullable, builder, this, correlates);
+        nullable, builder, conformance, this, correlates);
   }
 
   public RexToLixTranslator setBlock(BlockBuilder block) {
@@ -999,7 +1276,7 @@ public class RexToLixTranslator {
       return this;
     }
     return new RexToLixTranslator(program, typeFactory, root, inputGetter,
-        block, ImmutableMap.<RexNode, Boolean>of(), builder, this, correlates);
+        block, ImmutableMap.of(), builder, conformance, this, correlates);
   }
 
   public RexToLixTranslator setCorrelates(
@@ -1008,7 +1285,15 @@ public class RexToLixTranslator {
       return this;
     }
     return new RexToLixTranslator(program, typeFactory, root, inputGetter, list,
-        Collections.<RexNode, Boolean>emptyMap(), builder, this, correlates);
+        Collections.emptyMap(), builder, conformance, this, correlates);
+  }
+
+  private RexToLixTranslator withConformance(SqlConformance conformance) {
+    if (conformance == this.conformance) {
+      return this;
+    }
+    return new RexToLixTranslator(program, typeFactory, root, inputGetter, list,
+        Collections.emptyMap(), builder, conformance, this, correlates);
   }
 
   public RelDataType nullifyType(RelDataType type, boolean nullable) {
@@ -1031,6 +1316,36 @@ public class RexToLixTranslator {
 
   public Expression getRoot() {
     return root;
+  }
+
+  private static Expression scaleIntervalToNumber(
+      RelDataType sourceType,
+      RelDataType targetType,
+      Expression operand) {
+    switch (targetType.getSqlTypeName().getFamily()) {
+    case NUMERIC:
+      switch (sourceType.getSqlTypeName()) {
+      case INTERVAL_YEAR:
+      case INTERVAL_YEAR_MONTH:
+      case INTERVAL_MONTH:
+      case INTERVAL_DAY:
+      case INTERVAL_DAY_HOUR:
+      case INTERVAL_DAY_MINUTE:
+      case INTERVAL_DAY_SECOND:
+      case INTERVAL_HOUR:
+      case INTERVAL_HOUR_MINUTE:
+      case INTERVAL_HOUR_SECOND:
+      case INTERVAL_MINUTE:
+      case INTERVAL_MINUTE_SECOND:
+      case INTERVAL_SECOND:
+        // Scale to the given field.
+        final BigDecimal multiplier = BigDecimal.ONE;
+        final BigDecimal divider =
+            sourceType.getSqlTypeName().getEndUnit().multiplier;
+        return RexImpTable.multiplyDivide(operand, multiplier, divider);
+      }
+    }
+    return operand;
   }
 
   /** Translates a field of an input to an expression. */

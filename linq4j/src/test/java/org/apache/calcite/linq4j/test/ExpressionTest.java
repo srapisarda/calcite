@@ -26,13 +26,17 @@ import org.apache.calcite.linq4j.tree.Expression;
 import org.apache.calcite.linq4j.tree.Expressions;
 import org.apache.calcite.linq4j.tree.FieldDeclaration;
 import org.apache.calcite.linq4j.tree.FunctionExpression;
-import org.apache.calcite.linq4j.tree.MemberDeclaration;
 import org.apache.calcite.linq4j.tree.MethodCallExpression;
 import org.apache.calcite.linq4j.tree.NewExpression;
 import org.apache.calcite.linq4j.tree.Node;
 import org.apache.calcite.linq4j.tree.ParameterExpression;
+import org.apache.calcite.linq4j.tree.Shuttle;
 import org.apache.calcite.linq4j.tree.Types;
-import org.apache.calcite.linq4j.tree.Visitor;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 import org.junit.Test;
 
@@ -44,17 +48,157 @@ import java.util.AbstractList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 
+import static org.apache.calcite.linq4j.test.BlockBuilderBase.ONE;
+import static org.apache.calcite.linq4j.test.BlockBuilderBase.TWO;
+
+import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 
 /**
  * Unit test for {@link org.apache.calcite.linq4j.tree.Expression}
  * and subclasses.
  */
 public class ExpressionTest {
-  @Test public void testLambdaCallsBinaryOp() {
+
+  @Test public void testLambdaCallsBinaryOpInt() {
+    // A parameter for the lambda expression.
+    ParameterExpression paramExpr =
+        Expressions.parameter(Integer.TYPE, "arg");
+
+    // This expression represents a lambda expression
+    // that adds 1 to the parameter value.
+    FunctionExpression lambdaExpr = Expressions.lambda(
+        Expressions.add(
+            paramExpr,
+            Expressions.constant(2)),
+        Arrays.asList(paramExpr));
+
+    // Print out the expression.
+    String s = Expressions.toString(lambdaExpr);
+    assertEquals(
+        "new org.apache.calcite.linq4j.function.Function1() {\n"
+            + "  public int apply(int arg) {\n"
+            + "    return arg + 2;\n"
+            + "  }\n"
+            + "  public Object apply(Integer arg) {\n"
+            + "    return apply(\n"
+            + "      arg.intValue());\n"
+            + "  }\n"
+            + "  public Object apply(Object arg) {\n"
+            + "    return apply(\n"
+            + "      (Integer) arg);\n"
+            + "  }\n"
+            + "}\n",
+        s);
+
+    // Compile and run the lambda expression.
+    // The value of the parameter is 1
+    Integer n = (Integer) lambdaExpr.compile().dynamicInvoke(1);
+
+    // This code example produces the following output:
+    //
+    // arg => (arg +2)
+    // 3
+    assertEquals(3, n, 0);
+  }
+
+  @Test public void testLambdaCallsBinaryOpShort() {
+    // A parameter for the lambda expression.
+    ParameterExpression paramExpr =
+        Expressions.parameter(Short.TYPE, "arg");
+
+    // This expression represents a lambda expression
+    // that adds 1 to the parameter value.
+    Short a = 2;
+    FunctionExpression lambdaExpr = Expressions.lambda(
+        Expressions.add(
+            paramExpr,
+            Expressions.constant(a)),
+        Arrays.asList(paramExpr));
+
+    // Print out the expression.
+    String s = Expressions.toString(lambdaExpr);
+    assertEquals(
+        "new org.apache.calcite.linq4j.function.Function1() {\n"
+            + "  public int apply(short arg) {\n"
+            + "    return arg + (short)2;\n"
+            + "  }\n"
+            + "  public Object apply(Short arg) {\n"
+            + "    return apply(\n"
+            + "      arg.shortValue());\n"
+            + "  }\n"
+            + "  public Object apply(Object arg) {\n"
+            + "    return apply(\n"
+            + "      (Short) arg);\n"
+            + "  }\n"
+            + "}\n",
+        s);
+
+    // Compile and run the lambda expression.
+    // The value of the parameter is 1.
+    Short b = 1;
+    Integer n = (Integer) lambdaExpr.compile().dynamicInvoke(b);
+
+    // This code example produces the following output:
+    //
+    // arg => (arg +2)
+    // 3
+    assertEquals(3, n, 0);
+  }
+
+  @Test public void testLambdaCallsBinaryOpByte() {
+    // A parameter for the lambda expression.
+    ParameterExpression paramExpr =
+        Expressions.parameter(Byte.TYPE, "arg");
+
+    // This expression represents a lambda expression
+    // that adds 1 to the parameter value.
+    FunctionExpression lambdaExpr = Expressions.lambda(
+        Expressions.add(
+            paramExpr,
+            Expressions.constant(Byte.valueOf("2"))),
+        Arrays.asList(paramExpr));
+
+    // Print out the expression.
+    String s = Expressions.toString(lambdaExpr);
+    assertEquals(
+        "new org.apache.calcite.linq4j.function.Function1() {\n"
+            + "  public int apply(byte arg) {\n"
+            + "    return arg + (byte)2;\n"
+            + "  }\n"
+            + "  public Object apply(Byte arg) {\n"
+            + "    return apply(\n"
+            + "      arg.byteValue());\n"
+            + "  }\n"
+            + "  public Object apply(Object arg) {\n"
+            + "    return apply(\n"
+            + "      (Byte) arg);\n"
+            + "  }\n"
+            + "}\n",
+        s);
+
+    // Compile and run the lambda expression.
+    // The value of the parameter is 1.
+    Integer n = (Integer) lambdaExpr.compile().dynamicInvoke(Byte.valueOf("1"));
+
+    // This code example produces the following output:
+    //
+    // arg => (arg +2)
+    // 3
+    assertEquals(3, n, 0);
+  }
+
+  @Test public void testLambdaCallsBinaryOpDouble() {
     // A parameter for the lambda expression.
     ParameterExpression paramExpr =
         Expressions.parameter(Double.TYPE, "arg");
@@ -92,8 +236,90 @@ public class ExpressionTest {
     // This code example produces the following output:
     //
     // arg => (arg +2)
-    // 3
+    // 3.5
     assertEquals(3.5D, n, 0d);
+  }
+
+  @Test public void testLambdaCallsBinaryOpLong() {
+    // A parameter for the lambda expression.
+    ParameterExpression paramExpr =
+        Expressions.parameter(Long.TYPE, "arg");
+
+    // This expression represents a lambda expression
+    // that adds 1L to the parameter value.
+    FunctionExpression lambdaExpr = Expressions.lambda(
+        Expressions.add(
+            paramExpr,
+            Expressions.constant(2L)),
+        Arrays.asList(paramExpr));
+    // Print out the expression.
+    String s = Expressions.toString(lambdaExpr);
+    assertEquals(
+        "new org.apache.calcite.linq4j.function.Function1() {\n"
+            + "  public long apply(long arg) {\n"
+            + "    return arg + 2L;\n"
+            + "  }\n"
+            + "  public Object apply(Long arg) {\n"
+            + "    return apply(\n"
+            + "      arg.longValue());\n"
+            + "  }\n"
+            + "  public Object apply(Object arg) {\n"
+            + "    return apply(\n"
+            + "      (Long) arg);\n"
+            + "  }\n"
+            + "}\n",
+        s);
+
+    // Compile and run the lambda expression.
+    // The value of the parameter is 1L.
+    long n = (Long) lambdaExpr.compile().dynamicInvoke(1L);
+
+    // This code example produces the following output:
+    //
+    // arg => (arg +2)
+    // 3
+    assertEquals(3L, n, 0d);
+  }
+
+  @Test public void testLambdaCallsBinaryOpFloat() {
+    // A parameter for the lambda expression.
+    ParameterExpression paramExpr =
+        Expressions.parameter(Float.TYPE, "arg");
+
+    // This expression represents a lambda expression
+    // that adds 1f to the parameter value.
+    FunctionExpression lambdaExpr = Expressions.lambda(
+        Expressions.add(
+            paramExpr,
+            Expressions.constant(2.0f)),
+        Arrays.asList(paramExpr));
+    // Print out the expression.
+    String s = Expressions.toString(lambdaExpr);
+    assertEquals(
+        "new org.apache.calcite.linq4j.function.Function1() {\n"
+            + "  public float apply(float arg) {\n"
+            + "    return arg + 2.0F;\n"
+            + "  }\n"
+            + "  public Object apply(Float arg) {\n"
+            + "    return apply(\n"
+            + "      arg.floatValue());\n"
+            + "  }\n"
+            + "  public Object apply(Object arg) {\n"
+            + "    return apply(\n"
+            + "      (Float) arg);\n"
+            + "  }\n"
+            + "}\n",
+        s);
+
+    // Compile and run the lambda expression.
+    // The value of the parameter is 1f
+    float n = (Float) lambdaExpr.compile().dynamicInvoke(1f);
+
+    // This code example produces the following output:
+    //
+    // arg => (arg +2)
+    // 3.0
+    assertEquals(3.0f, n, 0f);
   }
 
   @Test public void testLambdaPrimitiveTwoArgs() {
@@ -188,7 +414,7 @@ public class ExpressionTest {
             Expressions.foldOr(list1)));
 
     final List<Expression> list2 =
-        Collections.<Expression>singletonList(
+        Collections.singletonList(
             Expressions.constant(true));
     assertEquals(
         "true",
@@ -229,7 +455,7 @@ public class ExpressionTest {
                 Expressions.constant(4L, Long.class))));
 
     assertEquals(
-        "new java.math.BigDecimal(31415926L, 7)",
+        "java.math.BigDecimal.valueOf(31415926L, 7)",
         Expressions.toString(
             Expressions.constant(
                 BigDecimal.valueOf(314159260, 8))));
@@ -348,7 +574,7 @@ public class ExpressionTest {
             Expressions.lambda(
                 Function1.class,
                 Expressions.call(
-                    paramX, "length", Collections.<Expression>emptyList()),
+                    paramX, "length", Collections.emptyList()),
                 Arrays.asList(paramX))));
 
     // 1-dimensional array with initializer
@@ -414,7 +640,7 @@ public class ExpressionTest {
                             Object.class),
                         String.class),
                     "length",
-                    Collections.<Expression>emptyList()),
+                    Collections.emptyList()),
                 Integer.TYPE)));
 
     // resolving a static method
@@ -628,8 +854,8 @@ public class ExpressionTest {
             Expressions.statement(
                 Expressions.new_(
                     Types.of(AbstractList.class, String.class),
-                    Collections.<Expression>emptyList(),
-                    Arrays.<MemberDeclaration>asList(
+                    Collections.emptyList(),
+                    Arrays.asList(
                         Expressions.fieldDecl(
                             Modifier.PUBLIC | Modifier.FINAL,
                             Expressions.parameter(
@@ -640,12 +866,12 @@ public class ExpressionTest {
                             Modifier.PUBLIC,
                             Integer.TYPE,
                             "size",
-                            Collections.<ParameterExpression>emptyList(),
+                            Collections.emptyList(),
                             Blocks.toFunctionBlock(
                                 Expressions.call(
                                     bazParameter,
                                     "size",
-                                    Collections.<Expression>emptyList()))),
+                                    Collections.emptyList()))),
                         Expressions.methodDecl(
                             Modifier.PUBLIC,
                             String.class,
@@ -661,8 +887,7 @@ public class ExpressionTest {
                                                 indexParameter)),
                                         String.class),
                                     "toUpperCase",
-                                    Collections
-                                        .<Expression>emptyList())))))));
+                                    ImmutableList.of())))))));
     assertEquals(
         "{\n"
             + "  final java.util.List<String> baz = java.util.Arrays.asList(\"foo\", \"bar\");\n"
@@ -746,10 +971,6 @@ public class ExpressionTest {
   }
 
   @Test public void testWriteTryFinally() {
-    final ParameterExpression cce_ =
-        Expressions.parameter(Modifier.FINAL, ClassCastException.class, "cce");
-    final ParameterExpression re_ =
-        Expressions.parameter(0, RuntimeException.class, "re");
     Node node =
         Expressions.ifThen(
             Expressions.constant(true),
@@ -828,6 +1049,20 @@ public class ExpressionTest {
             Expressions.constant(true),
             Expressions.constant(0),
             Expressions.constant(null)).getType());
+
+    // In Java, "-" applied to short and byte yield int.
+    assertEquals(double.class,
+        Expressions.negate(Expressions.constant((double) 1)).getType());
+    assertEquals(float.class,
+        Expressions.negate(Expressions.constant((float) 1)).getType());
+    assertEquals(long.class,
+        Expressions.negate(Expressions.constant((long) 1)).getType());
+    assertEquals(int.class,
+        Expressions.negate(Expressions.constant(1)).getType());
+    assertEquals(int.class,
+        Expressions.negate(Expressions.constant((short) 1)).getType());
+    assertEquals(int.class,
+        Expressions.negate(Expressions.constant((byte) 1)).getType());
   }
 
   @Test public void testCompile() throws NoSuchMethodException {
@@ -899,7 +1134,7 @@ public class ExpressionTest {
     statements.add(Expressions.return_(null, eighteen));
     BlockStatement expression = statements.toBlock();
     assertEquals(expected, Expressions.toString(expression));
-    expression.accept(new Visitor());
+    expression.accept(new Shuttle());
   }
 
   @Test public void testBlockBuilder2() {
@@ -924,13 +1159,13 @@ public class ExpressionTest {
                 "add",
                 element)));
     BlockStatement expression = statements.toBlock();
-    assertEquals(
-        "{\n"
-            + "  return new java.util.TreeSet(\n"
-            + "      (java.util.Comparator) null).add(null);\n"
-            + "}\n",
-        Expressions.toString(expression));
-    expression.accept(new Visitor());
+    final String expected = "{\n"
+        + "  final java.util.TreeSet treeSet = new java.util.TreeSet(\n"
+        + "    (java.util.Comparator) null);\n"
+        + "  return treeSet.add(null);\n"
+        + "}\n";
+    assertThat(Expressions.toString(expression), is(expected));
+    expression.accept(new Shuttle());
   }
 
   @Test public void testBlockBuilder3() {
@@ -975,23 +1210,24 @@ public class ExpressionTest {
             + "  final int _b = 1 + 2;\n"
             + "  final int _c = 1 + 3;\n"
             + "  final int _d = 1 + 4;\n"
-            + "  org.apache.calcite.linq4j.test.ExpressionTest.bar(1, _b, _c, _d, org.apache.calcite.linq4j.test.ExpressionTest.foo(_c));\n"
+            + "  final int _b0 = 1 + 3;\n"
+            + "  org.apache.calcite.linq4j.test.ExpressionTest.bar(1, _b, _c, _d, org.apache.calcite.linq4j.test.ExpressionTest.foo(_b0));\n"
             + "}\n",
         Expressions.toString(expression));
-    expression.accept(new Visitor());
+    expression.accept(new Shuttle());
   }
 
   @Test public void testConstantExpression() {
     final Expression constant = Expressions.constant(
         new Object[] {
-          1,
-          new Object[] {
-            (byte) 1, (short) 2, (int) 3, (long) 4,
-            (float) 5, (double) 6, (char) 7, true, "string", null
-          },
-          new AllType(true, (byte) 100, (char) 101, (short) 102, 103,
-              (long) 104, (float) 105, (double) 106, new BigDecimal(107),
-              new BigInteger("108"), "109", null)
+            1,
+            new Object[] {
+                (byte) 1, (short) 2, (int) 3, (long) 4,
+                (float) 5, (double) 6, (char) 7, true, "string", null
+            },
+            new AllType(true, (byte) 100, (char) 101, (short) 102, 103,
+                (long) 104, (float) 105, (double) 106, new BigDecimal(107),
+                new BigInteger("108"), "109", null)
         });
     assertEquals(
         "new Object[] {\n"
@@ -1016,20 +1252,35 @@ public class ExpressionTest {
             + "    104L,\n"
             + "    105.0F,\n"
             + "    106.0D,\n"
-            + "    new java.math.BigDecimal(107L),\n"
+            + "    java.math.BigDecimal.valueOf(107L),\n"
             + "    new java.math.BigInteger(\"108\"),\n"
             + "    \"109\",\n"
             + "    null)}",
         constant.toString());
-    constant.accept(new Visitor());
+    constant.accept(new Shuttle());
+  }
+
+  @Test public void testBigDecimalConstantExpression() {
+    assertEquals("java.math.BigDecimal.valueOf(104L)",
+        Expressions.toString(Expressions.constant("104", BigDecimal.class)));
+    assertEquals("java.math.BigDecimal.valueOf(1L, -3)",
+        Expressions.toString(Expressions.constant("1000", BigDecimal.class)));
+    assertEquals("java.math.BigDecimal.valueOf(1L, -3)",
+        Expressions.toString(Expressions.constant(1000, BigDecimal.class)));
+    assertEquals("java.math.BigDecimal.valueOf(107L)",
+        Expressions.toString(Expressions.constant(107, BigDecimal.class)));
+    assertEquals("java.math.BigDecimal.valueOf(199999999999999L)",
+        Expressions.toString(Expressions.constant(199999999999999L, BigDecimal.class)));
+    assertEquals("java.math.BigDecimal.valueOf(1234L, 2)",
+        Expressions.toString(Expressions.constant(12.34, BigDecimal.class)));
   }
 
   @Test public void testClassDecl() {
     final NewExpression newExpression =
         Expressions.new_(
             Object.class,
-            Collections.<Expression>emptyList(),
-            Arrays.<MemberDeclaration>asList(
+            ImmutableList.of(),
+            Arrays.asList(
                 Expressions.fieldDecl(
                     Modifier.PUBLIC | Modifier.FINAL,
                     Expressions.parameter(String.class, "foo"),
@@ -1038,8 +1289,8 @@ public class ExpressionTest {
                     Modifier.PUBLIC | Modifier.STATIC,
                     "MyClass",
                     null,
-                    Collections.<Type>emptyList(),
-                    Arrays.<MemberDeclaration>asList(
+                    ImmutableList.of(),
+                    Arrays.asList(
                         new FieldDeclaration(
                             0,
                             Expressions.parameter(int.class, "x"),
@@ -1056,7 +1307,7 @@ public class ExpressionTest {
             + "  int i;\n"
             + "}",
         Expressions.toString(newExpression));
-    newExpression.accept(new Visitor());
+    newExpression.accept(new Shuttle());
   }
 
   @Test public void testReturn() {
@@ -1195,6 +1446,162 @@ public class ExpressionTest {
             + "  }\n"
             + "}\n",
         Expressions.toString(builder.toBlock()));
+  }
+
+  @Test public void testForEach() {
+    final BlockBuilder builder = new BlockBuilder();
+    final ParameterExpression i_ = Expressions.parameter(int.class, "i");
+    final ParameterExpression list_ = Expressions.parameter(List.class, "list");
+    builder.add(
+        Expressions.forEach(i_, list_,
+            Expressions.ifThen(
+                Expressions.lessThan(
+                    Expressions.constant(1),
+                    Expressions.constant(2)),
+                Expressions.break_(null))));
+    assertThat(Expressions.toString(builder.toBlock()),
+        is("{\n"
+            + "  for (int i : list) {\n"
+            + "    if (1 < 2) {\n"
+            + "      break;\n"
+            + "    }\n"
+            + "  }\n"
+            + "}\n"));
+  }
+
+  @Test public void testEmptyListLiteral() throws Exception {
+    assertEquals("java.util.Collections.EMPTY_LIST",
+        Expressions.toString(Expressions.constant(Arrays.asList())));
+  }
+
+  @Test public void testOneElementListLiteral() throws Exception {
+    assertEquals("java.util.Arrays.asList(1)",
+        Expressions.toString(Expressions.constant(Arrays.asList(1))));
+  }
+
+  @Test public void testTwoElementsListLiteral() throws Exception {
+    assertEquals("java.util.Arrays.asList(1,\n"
+            + "  2)",
+        Expressions.toString(Expressions.constant(Arrays.asList(1, 2))));
+  }
+
+  @Test public void testNestedListsLiteral() throws Exception {
+    assertEquals("java.util.Arrays.asList(java.util.Arrays.asList(1,\n"
+            + "    2),\n"
+            + "  java.util.Arrays.asList(3,\n"
+            + "    4))",
+        Expressions.toString(
+            Expressions.constant(
+                Arrays.asList(Arrays.asList(1, 2), Arrays.asList(3, 4)))));
+  }
+
+  @Test public void testEmptyMapLiteral() throws Exception {
+    assertEquals("com.google.common.collect.ImmutableMap.of()",
+        Expressions.toString(Expressions.constant(new HashMap())));
+  }
+
+  @Test public void testOneElementMapLiteral() throws Exception {
+    assertEquals("com.google.common.collect.ImmutableMap.of(\"abc\", 42)",
+        Expressions.toString(Expressions.constant(Collections.singletonMap("abc", 42))));
+  }
+
+  @Test public void testTwoElementsMapLiteral() throws Exception {
+    assertEquals("com.google.common.collect.ImmutableMap.of(\"abc\", 42,\n"
+            + "\"def\", 43)",
+        Expressions.toString(Expressions.constant(ImmutableMap.of("abc", 42, "def", 43))));
+  }
+
+  @Test public void testTenElementsMapLiteral() throws Exception {
+    Map<String, String> map = new LinkedHashMap<>(); // for consistent output
+    for (int i = 0; i < 10; i++) {
+      map.put("key_" + i, "value_" + i);
+    }
+    assertEquals("com.google.common.collect.ImmutableMap.builder().put(\"key_0\", \"value_0\")\n"
+            + ".put(\"key_1\", \"value_1\")\n"
+            + ".put(\"key_2\", \"value_2\")\n"
+            + ".put(\"key_3\", \"value_3\")\n"
+            + ".put(\"key_4\", \"value_4\")\n"
+            + ".put(\"key_5\", \"value_5\")\n"
+            + ".put(\"key_6\", \"value_6\")\n"
+            + ".put(\"key_7\", \"value_7\")\n"
+            + ".put(\"key_8\", \"value_8\")\n"
+            + ".put(\"key_9\", \"value_9\").build()",
+        Expressions.toString(Expressions.constant(map)));
+  }
+
+  @Test public void testEvaluate() {
+    Expression x = Expressions.add(ONE, TWO);
+    Object value = Expressions.evaluate(x);
+    assertThat(value, is(3));
+  }
+
+  @Test public void testEmptySetLiteral() throws Exception {
+    assertEquals("com.google.common.collect.ImmutableSet.of()",
+        Expressions.toString(Expressions.constant(new HashSet())));
+  }
+
+  @Test public void testOneElementSetLiteral() throws Exception {
+    assertEquals("com.google.common.collect.ImmutableSet.of(1)",
+        Expressions.toString(Expressions.constant(Sets.newHashSet(1))));
+  }
+
+  @Test public void testTwoElementsSetLiteral() throws Exception {
+    assertEquals("com.google.common.collect.ImmutableSet.of(1,2)",
+        Expressions.toString(Expressions.constant(ImmutableSet.of(1, 2))));
+  }
+
+  @Test public void testTenElementsSetLiteral() throws Exception {
+    Set set = new LinkedHashSet(); // for consistent output
+    for (int i = 0; i < 10; i++) {
+      set.add(i);
+    }
+    assertEquals("com.google.common.collect.ImmutableSet.builder().add(0)\n"
+            + ".add(1)\n"
+            + ".add(2)\n"
+            + ".add(3)\n"
+            + ".add(4)\n"
+            + ".add(5)\n"
+            + ".add(6)\n"
+            + ".add(7)\n"
+            + ".add(8)\n"
+            + ".add(9).build()",
+        Expressions.toString(Expressions.constant(set)));
+  }
+
+  @Test public void testTenElementsLinkedHashSetLiteral() throws Exception {
+    Set set = new LinkedHashSet(); // for consistent output
+    for (Integer i = 0; i < 10; i++) {
+      set.add(i);
+    }
+    assertEquals("com.google.common.collect.ImmutableSet.builder().add(0)\n"
+            + ".add(1)\n"
+            + ".add(2)\n"
+            + ".add(3)\n"
+            + ".add(4)\n"
+            + ".add(5)\n"
+            + ".add(6)\n"
+            + ".add(7)\n"
+            + ".add(8)\n"
+            + ".add(9).build()",
+        Expressions.toString(Expressions.constant(set)));
+  }
+
+  @Test public void testTenElementsSetStringLiteral() throws Exception {
+    Set set = new LinkedHashSet(); // for consistent output
+    for (int i = 10; i > 0; i--) {
+      set.add(String.valueOf(i));
+    }
+    assertEquals("com.google.common.collect.ImmutableSet.builder().add(\"10\")\n"
+            + ".add(\"9\")\n"
+            + ".add(\"8\")\n"
+            + ".add(\"7\")\n"
+            + ".add(\"6\")\n"
+            + ".add(\"5\")\n"
+            + ".add(\"4\")\n"
+            + ".add(\"3\")\n"
+            + ".add(\"2\")\n"
+            + ".add(\"1\").build()",
+        Expressions.toString(Expressions.constant(set)));
   }
 
   /** An enum. */

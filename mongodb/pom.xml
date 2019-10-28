@@ -20,12 +20,12 @@ limitations under the License.
   <parent>
     <groupId>org.apache.calcite</groupId>
     <artifactId>calcite</artifactId>
-    <version>1.9.0-SNAPSHOT</version>
+    <version>1.22.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>calcite-mongodb</artifactId>
   <packaging>jar</packaging>
-  <version>1.9.0-SNAPSHOT</version>
+  <version>1.22.0-SNAPSHOT</version>
   <name>Calcite MongoDB</name>
   <description>MongoDB adapter for Calcite</description>
 
@@ -36,10 +36,6 @@ limitations under the License.
   <dependencies>
     <!-- Sorted by groupId, artifactId; calcite dependencies first. Put versions
          in dependencyManagement in the root POM, not here. -->
-    <dependency>
-      <groupId>org.apache.calcite.avatica</groupId>
-      <artifactId>avatica</artifactId>
-    </dependency>
     <dependency>
       <groupId>org.apache.calcite</groupId>
       <artifactId>calcite-core</artifactId>
@@ -55,7 +51,11 @@ limitations under the License.
       <groupId>org.apache.calcite</groupId>
       <artifactId>calcite-linq4j</artifactId>
     </dependency>
-
+    <dependency>
+      <groupId>org.apache.calcite.avatica</groupId>
+      <artifactId>avatica-core</artifactId>
+      <type>jar</type>
+    </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
@@ -70,6 +70,23 @@ limitations under the License.
       <artifactId>hamcrest-core</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- mongo-java-server is embedded, fake mongo engine used for tests -->
+    <dependency>
+      <groupId>de.bwaldvogel</groupId>
+      <artifactId>mongo-java-server-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>de.bwaldvogel</groupId>
+      <artifactId>mongo-java-server-memory-backend</artifactId>
+      <version>${mongo-java-server.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>net.hydromatic</groupId>
+      <artifactId>foodmart-data-json</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.mongodb</groupId>
       <artifactId>mongo-java-driver</artifactId>
@@ -77,11 +94,6 @@ limitations under the License.
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-log4j12</artifactId>
-      <scope>test</scope>
     </dependency>
   </dependencies>
 

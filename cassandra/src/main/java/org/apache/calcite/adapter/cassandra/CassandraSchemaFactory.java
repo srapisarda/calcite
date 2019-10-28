@@ -35,7 +35,21 @@ public class CassandraSchemaFactory implements SchemaFactory {
     Map map = (Map) operand;
     String host = (String) map.get("host");
     String keyspace = (String) map.get("keyspace");
-    return new CassandraSchema(host, keyspace, parentSchema, name);
+    String username = (String) map.get("username");
+    String password = (String) map.get("password");
+
+    if (map.containsKey("port")) {
+      Object portObj = map.get("port");
+      int port;
+      if (portObj instanceof String) {
+        port = Integer.parseInt((String) portObj);
+      } else {
+        port = (int) portObj;
+      }
+      return new CassandraSchema(host, port, keyspace, username, password, parentSchema, name);
+    } else {
+      return new CassandraSchema(host, keyspace, username, password, parentSchema, name);
+    }
   }
 }
 

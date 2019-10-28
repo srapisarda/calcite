@@ -42,7 +42,7 @@ class CassandraEnumerator implements Enumerator<Object> {
    * @param results Cassandra result set ({@link com.datastax.driver.core.ResultSet})
    * @param protoRowType The type of resulting rows
    */
-  public CassandraEnumerator(ResultSet results, RelProtoDataType protoRowType) {
+  CassandraEnumerator(ResultSet results, RelProtoDataType protoRowType) {
     this.iterator = results.iterator();
     this.current = null;
 
@@ -83,8 +83,10 @@ class CassandraEnumerator implements Enumerator<Object> {
       return current.getInt(index);
     } else if (type == DataType.bigint()) {
       return current.getLong(index);
-    } else if (type == DataType.cdouble() || type == DataType.cfloat()) {
+    } else if (type == DataType.cdouble()) {
       return current.getDouble(index);
+    } else if (type == DataType.cfloat()) {
+      return current.getFloat(index);
     } else if (type == DataType.uuid() || type == DataType.timeuuid()) {
       return current.getUUID(index).toString();
     } else {

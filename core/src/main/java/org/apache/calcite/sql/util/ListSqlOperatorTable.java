@@ -22,6 +22,7 @@ import org.apache.calcite.sql.SqlIdentifier;
 import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.SqlOperatorTable;
 import org.apache.calcite.sql.SqlSyntax;
+import org.apache.calcite.sql.validate.SqlNameMatcher;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -38,7 +39,7 @@ public class ListSqlOperatorTable implements SqlOperatorTable {
   //~ Constructors -----------------------------------------------------------
 
   public ListSqlOperatorTable() {
-    this(new ArrayList<SqlOperator>());
+    this(new ArrayList<>());
   }
 
   public ListSqlOperatorTable(List<SqlOperator> operatorList) {
@@ -54,26 +55,30 @@ public class ListSqlOperatorTable implements SqlOperatorTable {
   public void lookupOperatorOverloads(SqlIdentifier opName,
       SqlFunctionCategory category,
       SqlSyntax syntax,
-      List<SqlOperator> operatorList) {
+      List<SqlOperator> operatorList,
+      SqlNameMatcher nameMatcher) {
     for (SqlOperator operator : this.operatorList) {
       if (operator.getSyntax() != syntax) {
         continue;
       }
       if (!opName.isSimple()
-          || !operator.isName(opName.getSimple())) {
+          || !nameMatcher.matches(operator.getName(), opName.getSimple())) {
         continue;
       }
-      SqlFunctionCategory functionCategory;
-      if (operator instanceof SqlFunction) {
-        functionCategory = ((SqlFunction) operator).getFunctionType();
-      } else {
-        functionCategory = SqlFunctionCategory.SYSTEM;
-      }
-      if (category != functionCategory
-          && category != SqlFunctionCategory.USER_DEFINED_FUNCTION) {
+      if (category != null
+          && category != category(operator)
+          && !category.isUserDefinedNotSpecificFunction()) {
         continue;
       }
       operatorList.add(operator);
+    }
+  }
+
+  protected static SqlFunctionCategory category(SqlOperator operator) {
+    if (operator instanceof SqlFunction) {
+      return ((SqlFunction) operator).getFunctionType();
+    } else {
+      return SqlFunctionCategory.SYSTEM;
     }
   }
 

@@ -20,6 +20,7 @@ import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.util.UnmodifiableArrayList;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Implementation of {@link SqlCall} that keeps its operands in an array.
@@ -37,14 +38,14 @@ public class SqlBasicCall extends SqlCall {
     this(operator, operands, pos, false, null);
   }
 
-  protected SqlBasicCall(
+  public SqlBasicCall(
       SqlOperator operator,
       SqlNode[] operands,
       SqlParserPos pos,
       boolean expanded,
       SqlLiteral functionQualifier) {
     super(pos);
-    this.operator = operator;
+    this.operator = Objects.requireNonNull(operator);
     this.operands = operands;
     this.expanded = expanded;
     this.functionQuantifier = functionQualifier;
@@ -63,7 +64,7 @@ public class SqlBasicCall extends SqlCall {
   }
 
   public void setOperator(SqlOperator operator) {
-    this.operator = operator;
+    this.operator = Objects.requireNonNull(operator);
   }
 
   public SqlOperator getOperator() {
@@ -90,6 +91,11 @@ public class SqlBasicCall extends SqlCall {
   @Override public SqlLiteral getFunctionQuantifier() {
     return functionQuantifier;
   }
+
+  @Override public SqlNode clone(SqlParserPos pos) {
+    return getOperator().createCall(getFunctionQuantifier(), pos, operands);
+  }
+
 }
 
 // End SqlBasicCall.java

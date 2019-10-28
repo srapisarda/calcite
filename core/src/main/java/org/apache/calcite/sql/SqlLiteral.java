@@ -31,8 +31,11 @@ import org.apache.calcite.sql.validate.SqlMonotonicity;
 import org.apache.calcite.sql.validate.SqlValidator;
 import org.apache.calcite.sql.validate.SqlValidatorScope;
 import org.apache.calcite.util.BitString;
+import org.apache.calcite.util.DateString;
 import org.apache.calcite.util.Litmus;
 import org.apache.calcite.util.NlsString;
+import org.apache.calcite.util.TimeString;
+import org.apache.calcite.util.TimestampString;
 import org.apache.calcite.util.Util;
 
 import java.math.BigDecimal;
@@ -129,7 +132,8 @@ import static org.apache.calcite.util.Static.RESOURCE;
  * <td>An {@link Enum}</td>
  * </tr>
  * <tr>
- * <td>{@link SqlTypeName#INTERVAL_DAY_TIME}</td>
+ * <td>{@link SqlTypeName#INTERVAL_YEAR}
+ *     .. {@link SqlTypeName#INTERVAL_SECOND}</td>
  * <td>Interval, for example <code>INTERVAL '1:34' HOUR</code>.</td>
  * <td>{@link SqlIntervalLiteral.IntervalValue}.</td>
  * </tr>
@@ -194,11 +198,24 @@ public class SqlLiteral extends SqlNode {
     case DOUBLE:
       return value instanceof BigDecimal;
     case DATE:
+      return value instanceof DateString;
     case TIME:
+      return value instanceof TimeString;
     case TIMESTAMP:
-      return value instanceof Calendar;
-    case INTERVAL_DAY_TIME:
+      return value instanceof TimestampString;
+    case INTERVAL_YEAR:
     case INTERVAL_YEAR_MONTH:
+    case INTERVAL_MONTH:
+    case INTERVAL_DAY:
+    case INTERVAL_DAY_HOUR:
+    case INTERVAL_DAY_MINUTE:
+    case INTERVAL_DAY_SECOND:
+    case INTERVAL_HOUR:
+    case INTERVAL_HOUR_MINUTE:
+    case INTERVAL_HOUR_SECOND:
+    case INTERVAL_MINUTE:
+    case INTERVAL_MINUTE_SECOND:
+    case INTERVAL_SECOND:
       return value instanceof SqlIntervalLiteral.IntervalValue;
     case BINARY:
       return value instanceof BitString;
@@ -217,7 +234,7 @@ public class SqlLiteral extends SqlNode {
     }
   }
 
-  public SqlNode clone(SqlParserPos pos) {
+  public SqlLiteral clone(SqlParserPos pos) {
     return new SqlLiteral(value, typeName, pos);
   }
 
@@ -237,6 +254,101 @@ public class SqlLiteral extends SqlNode {
    */
   public Object getValue() {
     return value;
+  }
+
+  public <T> T getValueAs(Class<T> clazz) {
+    if (clazz.isInstance(value)) {
+      return clazz.cast(value);
+    }
+    switch (typeName) {
+    case CHAR:
+      if (clazz == String.class) {
+        return clazz.cast(((NlsString) value).getValue());
+      }
+      break;
+    case BINARY:
+      if (clazz == byte[].class) {
+        return clazz.cast(((BitString) value).getAsByteArray());
+      }
+      break;
+    case DECIMAL:
+      if (clazz == Long.class) {
+        return clazz.cast(((BigDecimal) value).unscaledValue().longValue());
+      }
+      // fall through
+    case BIGINT:
+    case INTEGER:
+    case SMALLINT:
+    case TINYINT:
+    case DOUBLE:
+    case REAL:
+    case FLOAT:
+      if (clazz == Long.class) {
+        return clazz.cast(((BigDecimal) value).longValue());
+      } else if (clazz == Integer.class) {
+        return clazz.cast(((BigDecimal) value).intValue());
+      } else if (clazz == Short.class) {
+        return clazz.cast(((BigDecimal) value).shortValue());
+      } else if (clazz == Byte.class) {
+        return clazz.cast(((BigDecimal) value).byteValue());
+      } else if (clazz == Double.class) {
+        return clazz.cast(((BigDecimal) value).doubleValue());
+      } else if (clazz == Float.class) {
+        return clazz.cast(((BigDecimal) value).floatValue());
+      }
+      break;
+    case DATE:
+      if (clazz == Calendar.class) {
+        return clazz.cast(((DateString) value).toCalendar());
+      }
+      break;
+    case TIME:
+      if (clazz == Calendar.class) {
+        return clazz.cast(((TimeString) value).toCalendar());
+      }
+      break;
+    case TIMESTAMP:
+      if (clazz == Calendar.class) {
+        return clazz.cast(((TimestampString) value).toCalendar());
+      }
+      break;
+    case INTERVAL_YEAR:
+    case INTERVAL_YEAR_MONTH:
+    case INTERVAL_MONTH:
+      final SqlIntervalLiteral.IntervalValue valMonth =
+          (SqlIntervalLiteral.IntervalValue) value;
+      if (clazz == Long.class) {
+        return clazz.cast(valMonth.getSign()
+            * SqlParserUtil.intervalToMonths(valMonth));
+      } else if (clazz == BigDecimal.class) {
+        return clazz.cast(BigDecimal.valueOf(getValueAs(Long.class)));
+      } else if (clazz == TimeUnitRange.class) {
+        return clazz.cast(valMonth.getIntervalQualifier().timeUnitRange);
+      }
+      break;
+    case INTERVAL_DAY:
+    case INTERVAL_DAY_HOUR:
+    case INTERVAL_DAY_MINUTE:
+    case INTERVAL_DAY_SECOND:
+    case INTERVAL_HOUR:
+    case INTERVAL_HOUR_MINUTE:
+    case INTERVAL_HOUR_SECOND:
+    case INTERVAL_MINUTE:
+    case INTERVAL_MINUTE_SECOND:
+    case INTERVAL_SECOND:
+      final SqlIntervalLiteral.IntervalValue valTime =
+          (SqlIntervalLiteral.IntervalValue) value;
+      if (clazz == Long.class) {
+        return clazz.cast(valTime.getSign()
+            * SqlParserUtil.intervalToMillis(valTime));
+      } else if (clazz == BigDecimal.class) {
+        return clazz.cast(BigDecimal.valueOf(getValueAs(Long.class)));
+      } else if (clazz == TimeUnitRange.class) {
+        return clazz.cast(valTime.getIntervalQualifier().timeUnitRange);
+      }
+      break;
+    }
+    throw new AssertionError("cannot cast " + value + " as " + clazz);
   }
 
   /** Returns the value as a symbol. */
@@ -281,18 +393,22 @@ public class SqlLiteral extends SqlNode {
    * <li>If the node is a {@link SqlIntervalQualifier},
    * returns its {@link TimeUnitRange}.
    *
-   * <li>If the node is INTERVAL_DAY_TIME in {@link SqlTypeFamily},
+   * <li>If the node is INTERVAL_DAY_TIME_ in {@link SqlTypeFamily},
    * returns its sign multiplied by its millisecond equivalent value
    *
-   * <li>If the node is INTERVAL_YEAR_MONTH in {@link SqlTypeFamily},
+   * <li>If the node is INTERVAL_YEAR_MONTH_ in {@link SqlTypeFamily},
    * returns its sign multiplied by its months equivalent value
    *
-   * <li>Otherwise the behavior is not specified.
+   * <li>Otherwise throws {@link IllegalArgumentException}.
    * </ul>
    */
-  public static Comparable value(SqlNode node) {
+  public static Comparable value(SqlNode node)
+      throws IllegalArgumentException {
     if (node instanceof SqlLiteral) {
-      SqlLiteral literal = (SqlLiteral) node;
+      final SqlLiteral literal = (SqlLiteral) node;
+      if (literal.getTypeName() == SqlTypeName.SYMBOL) {
+        return (Enum) literal.value;
+      }
       switch (literal.getTypeName().getFamily()) {
       case CHARACTER:
         return (NlsString) literal.value;
@@ -332,7 +448,7 @@ public class SqlLiteral extends SqlNode {
       }
       // fall through
     default:
-      throw Util.newInternal("invalid literal: " + node);
+      throw new IllegalArgumentException("not a literal: " + node);
     }
   }
 
@@ -347,31 +463,39 @@ public class SqlLiteral extends SqlNode {
     if (node instanceof SqlLiteral) {
       SqlLiteral literal = (SqlLiteral) node;
       assert SqlTypeUtil.inCharFamily(literal.getTypeName());
-      return literal.toValue();
+      return literal.value.toString();
     } else if (SqlUtil.isLiteralChain(node)) {
       final SqlLiteral literal =
           SqlLiteralChainOperator.concatenateOperands((SqlCall) node);
       assert SqlTypeUtil.inCharFamily(literal.getTypeName());
-      return literal.toValue();
+      return literal.value.toString();
     } else if (node instanceof SqlCall
         && ((SqlCall) node).getOperator() == SqlStdOperatorTable.CAST) {
+      //noinspection deprecation
       return stringValue(((SqlCall) node).operand(0));
     } else {
-      throw Util.newInternal("invalid string literal: " + node);
+      throw new AssertionError("invalid string literal: " + node);
     }
   }
 
   /**
    * Converts a chained string literals into regular literals; returns regular
    * literals unchanged.
+   * @throws IllegalArgumentException if {@code node} is not a string literal
+   * and cannot be unchained.
    */
   public static SqlLiteral unchain(SqlNode node) {
     if (node instanceof SqlLiteral) {
       return (SqlLiteral) node;
     } else if (SqlUtil.isLiteralChain(node)) {
       return SqlLiteralChainOperator.concatenateOperands((SqlCall) node);
+    } else if (node instanceof SqlIntervalQualifier) {
+      final SqlIntervalQualifier q = (SqlIntervalQualifier) node;
+      return new SqlLiteral(
+          new SqlIntervalLiteral.IntervalValue(q, 1, q.toString()),
+          q.typeName(), q.pos);
     } else {
-      throw Util.newInternal("invalid literal: " + node);
+      throw new IllegalArgumentException("invalid literal: " + node);
     }
   }
 
@@ -632,8 +756,19 @@ public class SqlLiteral extends SqlNode {
               collation);
       return type;
 
+    case INTERVAL_YEAR:
     case INTERVAL_YEAR_MONTH:
-    case INTERVAL_DAY_TIME:
+    case INTERVAL_MONTH:
+    case INTERVAL_DAY:
+    case INTERVAL_DAY_HOUR:
+    case INTERVAL_DAY_MINUTE:
+    case INTERVAL_DAY_SECOND:
+    case INTERVAL_HOUR:
+    case INTERVAL_HOUR_MINUTE:
+    case INTERVAL_HOUR_SECOND:
+    case INTERVAL_MINUTE:
+    case INTERVAL_MINUTE_SECOND:
+    case INTERVAL_SECOND:
       SqlIntervalLiteral.IntervalValue intervalValue =
           (SqlIntervalLiteral.IntervalValue) value;
       return typeFactory.createSqlIntervalType(
@@ -652,24 +787,48 @@ public class SqlLiteral extends SqlNode {
     }
   }
 
+  @Deprecated // to be removed before 2.0
   public static SqlDateLiteral createDate(
       Calendar calendar,
       SqlParserPos pos) {
-    return new SqlDateLiteral(calendar, pos);
+    return createDate(DateString.fromCalendarFields(calendar), pos);
   }
 
+  public static SqlDateLiteral createDate(
+      DateString date,
+      SqlParserPos pos) {
+    return new SqlDateLiteral(date, pos);
+  }
+
+  @Deprecated // to be removed before 2.0
   public static SqlTimestampLiteral createTimestamp(
       Calendar calendar,
       int precision,
       SqlParserPos pos) {
-    return new SqlTimestampLiteral(calendar, precision, false, pos);
+    return createTimestamp(TimestampString.fromCalendarFields(calendar),
+        precision, pos);
   }
 
+  public static SqlTimestampLiteral createTimestamp(
+      TimestampString ts,
+      int precision,
+      SqlParserPos pos) {
+    return new SqlTimestampLiteral(ts, precision, false, pos);
+  }
+
+  @Deprecated // to be removed before 2.0
   public static SqlTimeLiteral createTime(
       Calendar calendar,
       int precision,
       SqlParserPos pos) {
-    return new SqlTimeLiteral(calendar, precision, false, pos);
+    return createTime(TimeString.fromCalendarFields(calendar), precision, pos);
+  }
+
+  public static SqlTimeLiteral createTime(
+      TimeString t,
+      int precision,
+      SqlParserPos pos) {
+    return new SqlTimeLiteral(t, precision, false, pos);
   }
 
   /**
@@ -684,15 +843,8 @@ public class SqlLiteral extends SqlNode {
       String intervalStr,
       SqlIntervalQualifier intervalQualifier,
       SqlParserPos pos) {
-    SqlTypeName typeName =
-        intervalQualifier.isYearMonth() ? SqlTypeName.INTERVAL_YEAR_MONTH
-            : SqlTypeName.INTERVAL_DAY_TIME;
-    return new SqlIntervalLiteral(
-        sign,
-        intervalStr,
-        intervalQualifier,
-        typeName,
-        pos);
+    return new SqlIntervalLiteral(sign, intervalStr, intervalQualifier,
+        intervalQualifier.typeName(), pos);
   }
 
   public static SqlNumericLiteral createNegative(

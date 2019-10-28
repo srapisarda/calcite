@@ -16,29 +16,53 @@
  */
 package org.apache.calcite.test;
 
+import org.apache.calcite.TestKtTest;
 import org.apache.calcite.adapter.clone.ArrayTableTest;
+import org.apache.calcite.adapter.enumerable.TypeFinderTest;
 import org.apache.calcite.jdbc.CalciteRemoteDriverTest;
+import org.apache.calcite.materialize.LatticeSuggesterTest;
 import org.apache.calcite.plan.RelOptPlanReaderTest;
 import org.apache.calcite.plan.RelOptUtilTest;
+import org.apache.calcite.plan.RelTraitTest;
 import org.apache.calcite.plan.RelWriterTest;
+import org.apache.calcite.plan.volcano.CollationConversionTest;
+import org.apache.calcite.plan.volcano.ComboRuleTest;
+import org.apache.calcite.plan.volcano.TraitConversionTest;
 import org.apache.calcite.plan.volcano.TraitPropagationTest;
 import org.apache.calcite.plan.volcano.VolcanoPlannerTest;
 import org.apache.calcite.plan.volcano.VolcanoPlannerTraitTest;
+import org.apache.calcite.prepare.LookupOperatorOverloadsTest;
+import org.apache.calcite.profile.ProfilerTest;
 import org.apache.calcite.rel.RelCollationTest;
+import org.apache.calcite.rel.RelDistributionTest;
+import org.apache.calcite.rel.rel2sql.RelToSqlConverterStructsTest;
 import org.apache.calcite.rel.rel2sql.RelToSqlConverterTest;
+import org.apache.calcite.rel.rules.DateRangeRulesTest;
+import org.apache.calcite.rel.rules.SortRemoveRuleTest;
 import org.apache.calcite.rex.RexBuilderTest;
 import org.apache.calcite.rex.RexExecutorTest;
+import org.apache.calcite.rex.RexSqlStandardConvertletTableTest;
+import org.apache.calcite.runtime.AutomatonTest;
 import org.apache.calcite.runtime.BinarySearchTest;
 import org.apache.calcite.runtime.EnumerablesTest;
 import org.apache.calcite.sql.SqlSetOptionOperatorTest;
 import org.apache.calcite.sql.parser.SqlParserTest;
 import org.apache.calcite.sql.parser.SqlUnParserTest;
+import org.apache.calcite.sql.parser.parserextensiontesting.ExtensionSqlParserTest;
+import org.apache.calcite.sql.test.DocumentationTest;
 import org.apache.calcite.sql.test.SqlAdvisorTest;
 import org.apache.calcite.sql.test.SqlOperatorTest;
 import org.apache.calcite.sql.test.SqlPrettyWriterTest;
 import org.apache.calcite.sql.test.SqlTypeNameTest;
 import org.apache.calcite.sql.type.SqlTypeFactoryTest;
+import org.apache.calcite.sql.type.SqlTypeUtilTest;
+import org.apache.calcite.sql.validate.LexCaseSensitiveTest;
+import org.apache.calcite.sql.validate.LexEscapeTest;
+import org.apache.calcite.sql.validate.SqlValidatorUtilTest;
 import org.apache.calcite.test.enumerable.EnumerableCorrelateTest;
+import org.apache.calcite.test.enumerable.EnumerableRepeatUnionHierarchyTest;
+import org.apache.calcite.test.enumerable.EnumerableRepeatUnionTest;
+import org.apache.calcite.test.fuzzer.RexProgramFuzzyTest;
 import org.apache.calcite.tools.FrameworksTest;
 import org.apache.calcite.tools.PlannerTest;
 import org.apache.calcite.util.BitSetsTest;
@@ -46,7 +70,10 @@ import org.apache.calcite.util.ChunkListTest;
 import org.apache.calcite.util.ImmutableBitSetTest;
 import org.apache.calcite.util.PartiallyOrderedSetTest;
 import org.apache.calcite.util.PermutationTestCase;
+import org.apache.calcite.util.PrecedenceClimbingParserTest;
 import org.apache.calcite.util.ReflectVisitorTest;
+import org.apache.calcite.util.SourceTest;
+import org.apache.calcite.util.TestUtilTest;
 import org.apache.calcite.util.UtilTest;
 import org.apache.calcite.util.graph.DirectedGraphTest;
 import org.apache.calcite.util.mapping.MappingTest;
@@ -66,6 +93,7 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
     // very fast tests (under 0.1s)
+    TestKtTest.class,
     ArrayTableTest.class,
     BitSetsTest.class,
     ImmutableBitSetTest.class,
@@ -74,83 +102,129 @@ import org.junit.runners.Suite;
     RelOptUtilTest.class,
     RelCollationTest.class,
     UtilTest.class,
+    PrecedenceClimbingParserTest.class,
+    SourceTest.class,
     MappingTest.class,
     CalciteResourceTest.class,
     FilteratorTest.class,
     PermutationTestCase.class,
     SqlFunctionsTest.class,
+    SqlJsonFunctionsTest.class,
     SqlTypeNameTest.class,
     ModelTest.class,
+    TypeCoercionTest.class,
+    TypeCoercionConverterTest.class,
     SqlValidatorFeatureTest.class,
     VolcanoPlannerTraitTest.class,
     InterpreterTest.class,
+    TestUtilTest.class,
     VolcanoPlannerTest.class,
+    RelTraitTest.class,
     HepPlannerTest.class,
     TraitPropagationTest.class,
+    RelDistributionTest.class,
     RelWriterTest.class,
     RexProgramTest.class,
     SqlOperatorBindingTest.class,
     RexTransformerTest.class,
+    AutomatonTest.class,
     BinarySearchTest.class,
     EnumerablesTest.class,
     ExceptionMessageTest.class,
     InduceGroupingTypeTest.class,
     RelOptPlanReaderTest.class,
     RexBuilderTest.class,
+    RexSqlStandardConvertletTableTest.class,
     SqlTypeFactoryTest.class,
+    SqlTypeUtilTest.class,
+    SqlValidatorUtilTest.class,
+    TypeFinderTest.class,
+    RexShuttleTest.class,
 
     // medium tests (above 0.1s)
     SqlParserTest.class,
     SqlUnParserTest.class,
+    ExtensionSqlParserTest.class,
     SqlSetOptionOperatorTest.class,
     SqlPrettyWriterTest.class,
     SqlValidatorTest.class,
+    SqlValidatorDynamicTest.class,
+    SqlValidatorMatchTest.class,
     SqlAdvisorTest.class,
     RelMetadataTest.class,
-    RelOptRulesTest.class,
+    DateRangeRulesTest.class,
     ScannableTableTest.class,
     RexExecutorTest.class,
     SqlLimitsTest.class,
     JdbcFrontLinqBackTest.class,
-    JdbcFrontJdbcBackTest.class,
-    SqlToRelConverterTest.class,
     RelToSqlConverterTest.class,
+    RelToSqlConverterStructsTest.class,
     SqlOperatorTest.class,
     ChunkListTest.class,
     FrameworksTest.class,
     EnumerableCorrelateTest.class,
+    LookupOperatorOverloadsTest.class,
+    LexCaseSensitiveTest.class,
+    LexEscapeTest.class,
+    CollationConversionTest.class,
+    TraitConversionTest.class,
+    ComboRuleTest.class,
+    MutableRelTest.class,
 
     // slow tests (above 1s)
+    DocumentationTest.class,
     UdfTest.class,
+    UdtTest.class,
+    TableFunctionTest.class,
     PlannerTest.class,
     RelBuilderTest.class,
     PigRelBuilderTest.class,
     RexImplicationCheckerTest.class,
-    MaterializationTest.class,
     JdbcAdapterTest.class,
     LinqFrontJdbcBackTest.class,
     JdbcFrontJdbcBackLinqMiddleTest.class,
-    CalciteSqlOperatorTest.class,
-    LatticeTest.class,
-    ReflectiveSchemaTest.class,
-    JdbcTest.class,
+    RexProgramFuzzyTest.class,
+    SqlToRelConverterTest.class,
+    ProfilerTest.class,
+    SqlStatisticProviderTest.class,
+    SqlAdvisorJdbcTest.class,
+    CoreQuidemTest.class,
     CalciteRemoteDriverTest.class,
     StreamTest.class,
+    SortRemoveRuleTest.class,
+
+    // above 10sec
+    JdbcFrontJdbcBackTest.class,
+    EnumerableRepeatUnionTest.class,
+    EnumerableRepeatUnionHierarchyTest.class,
+    // above 20sec
+    JdbcTest.class,
+    CalciteSqlOperatorTest.class,
+    ReflectiveSchemaTest.class,
+    RelOptRulesTest.class,
 
     // test cases
     TableInRootSchemaTest.class,
     RelMdColumnOriginsTest.class,
     MultiJdbcSchemaJoinTest.class,
     SqlLineTest.class,
+    CollectionTypeTest.class,
 
     // slow tests that don't break often
     SqlToRelConverterExtendedTest.class,
     PartiallyOrderedSetTest.class,
 
+    // above 30sec
+    LatticeSuggesterTest.class,
+    MaterializationTest.class,
+
+    // above 120sec
+    LatticeTest.class,
+
     // system tests and benchmarks (very slow, but usually only run if
     // '-Dcalcite.test.slow' is specified)
     FoodmartTest.class
-})
+    })
 public class CalciteSuite {
 }
 

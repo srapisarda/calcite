@@ -57,7 +57,7 @@ class SplunkTable extends AbstractQueryableTable implements TranslatableTable {
 
   public <T> Queryable<T> asQueryable(QueryProvider queryProvider,
       SchemaPlus schema, String tableName) {
-    return new SplunkTableQueryable<T>(queryProvider, schema, this, tableName);
+    return new SplunkTableQueryable<>(queryProvider, schema, this, tableName);
   }
 
   public RelNode toRel(
@@ -75,10 +75,12 @@ class SplunkTable extends AbstractQueryableTable implements TranslatableTable {
 
   /** Implementation of {@link Queryable} backed by a {@link SplunkTable}.
    * Generated code uses this get a Splunk connection for executing arbitrary
-   * Splunk queries. */
+   * Splunk queries.
+   *
+   * @param <T> element type */
   public static class SplunkTableQueryable<T>
       extends AbstractTableQueryable<T> {
-    public SplunkTableQueryable(QueryProvider queryProvider, SchemaPlus schema,
+    SplunkTableQueryable(QueryProvider queryProvider, SchemaPlus schema,
         SplunkTable table, String tableName) {
       super(queryProvider, schema, table, tableName);
     }
@@ -91,7 +93,7 @@ class SplunkTable extends AbstractQueryableTable implements TranslatableTable {
     public SplunkQuery<T> createQuery(String search, String earliest,
         String latest, List<String> fieldList) {
       final SplunkSchema splunkSchema = schema.unwrap(SplunkSchema.class);
-      return new SplunkQuery<T>(splunkSchema.splunkConnection, search,
+      return new SplunkQuery<>(splunkSchema.splunkConnection, search,
           earliest, latest, fieldList);
     }
   }

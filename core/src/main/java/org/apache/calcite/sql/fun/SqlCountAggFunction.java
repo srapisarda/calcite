@@ -16,6 +16,7 @@
  */
 package org.apache.calcite.sql.fun;
 
+import org.apache.calcite.config.CalciteSystemProperty;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.sql.SqlAggFunction;
@@ -26,9 +27,11 @@ import org.apache.calcite.sql.SqlSplittableAggFunction;
 import org.apache.calcite.sql.SqlSyntax;
 import org.apache.calcite.sql.type.OperandTypes;
 import org.apache.calcite.sql.type.ReturnTypes;
+import org.apache.calcite.sql.type.SqlOperandTypeChecker;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql.validate.SqlValidator;
 import org.apache.calcite.sql.validate.SqlValidatorScope;
+import org.apache.calcite.util.Optionality;
 
 import com.google.common.collect.ImmutableList;
 
@@ -44,19 +47,15 @@ import java.util.List;
 public class SqlCountAggFunction extends SqlAggFunction {
   //~ Constructors -----------------------------------------------------------
 
-  public SqlCountAggFunction() {
-    super(
-        "COUNT",
-        null,
-        SqlKind.COUNT,
-        ReturnTypes.BIGINT,
-        null,
-        SqlValidator.STRICT
-            ? OperandTypes.ANY
-            : OperandTypes.ONE_OR_MORE,
-        SqlFunctionCategory.NUMERIC,
-        false,
-        false);
+  public SqlCountAggFunction(String name) {
+    this(name, CalciteSystemProperty.STRICT.value() ? OperandTypes.ANY : OperandTypes.ONE_OR_MORE);
+  }
+
+  public SqlCountAggFunction(String name,
+      SqlOperandTypeChecker sqlOperandTypeChecker) {
+    super(name, null, SqlKind.COUNT, ReturnTypes.BIGINT, null,
+        sqlOperandTypeChecker, SqlFunctionCategory.NUMERIC, false, false,
+        Optionality.FORBIDDEN);
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -65,12 +64,14 @@ public class SqlCountAggFunction extends SqlAggFunction {
     return SqlSyntax.FUNCTION_STAR;
   }
 
+  @SuppressWarnings("deprecation")
   public List<RelDataType> getParameterTypes(RelDataTypeFactory typeFactory) {
     return ImmutableList.of(
         typeFactory.createTypeWithNullability(
             typeFactory.createSqlType(SqlTypeName.ANY), true));
   }
 
+  @SuppressWarnings("deprecation")
   public RelDataType getReturnType(RelDataTypeFactory typeFactory) {
     return typeFactory.createSqlType(SqlTypeName.BIGINT);
   }

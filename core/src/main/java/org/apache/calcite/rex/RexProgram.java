@@ -16,11 +16,16 @@
  */
 package org.apache.calcite.rex;
 
+import org.apache.calcite.linq4j.Ord;
+import org.apache.calcite.plan.RelOptPredicateList;
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelFieldCollation;
+import org.apache.calcite.rel.RelInput;
+import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
+import org.apache.calcite.rel.externalize.RelJsonWriter;
 import org.apache.calcite.rel.externalize.RelWriterImpl;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
@@ -30,9 +35,11 @@ import org.apache.calcite.sql.type.SqlTypeUtil;
 import org.apache.calcite.util.Litmus;
 import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.Permutation;
+import org.apache.calcite.util.mapping.MappingType;
+import org.apache.calcite.util.mapping.Mappings;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
+import com.google.common.collect.Ordering;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -49,8 +56,8 @@ import java.util.Set;
  * and optionally use a condition to filter rows.
  *
  * <p>Programs are immutable. It may help to use a {@link RexProgramBuilder},
- * which has the same relationship to {@link RexProgram} as {@link StringBuffer}
- * does has to {@link String}.
+ * which has the same relationship to {@link RexProgram} as {@link StringBuilder}
+ * has to {@link String}.
  *
  * <p>A program can contain aggregate functions. If it does, the arguments to
  * each aggregate function must be an {@link RexInputRef}.
@@ -112,7 +119,7 @@ public class RexProgram {
     this.projects = ImmutableList.copyOf(projects);
     this.condition = condition;
     this.outputRowType = outputRowType;
-    assert isValid(Litmus.THROW);
+    assert isValid(Litmus.THROW, null);
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -222,6 +229,23 @@ public class RexProgram {
     return programBuilder.getProgram();
   }
 
+  /**
+   * Create a program from serialized output.
+   * In this case, the input is mainly from the output json string of {@link RelJsonWriter}
+   */
+  public static RexProgram create(RelInput input) {
+    final List<RexNode> exprs = input.getExpressionList("exprs");
+    final List<RexNode> projectRexNodes = input.getExpressionList("projects");
+    final List<RexLocalRef> projects = new ArrayList<>(projectRexNodes.size());
+    for (RexNode rexNode: projectRexNodes) {
+      projects.add((RexLocalRef) rexNode);
+    }
+    final RelDataType inputType = input.getRowType("inputRowType");
+    final RelDataType outputType = input.getRowType("outputRowType");
+    final RexLocalRef condition = (RexLocalRef) input.getExpression("condition");
+    return new RexProgram(inputType, exprs, projects, condition, outputType);
+  }
+
   // description of this calc, chiefly intended for debugging
   public String toString() {
     // Intended to produce similar output to explainCalc,
@@ -239,7 +263,16 @@ public class RexProgram {
    * @param pw Plan writer
    */
   public RelWriter explainCalc(RelWriter pw) {
-    return collectExplainTerms("", pw, pw.getDetailLevel());
+    if (pw instanceof RelJsonWriter) {
+      return pw
+          .item("exprs", exprs)
+          .item("projects", projects)
+          .item("condition", condition)
+          .item("inputRowType", inputRowType)
+          .item("outputRowType", outputRowType);
+    } else {
+      return collectExplainTerms("", pw, pw.getDetailLevel());
+    }
   }
 
   public RelWriter collectExplainTerms(
@@ -397,9 +430,11 @@ public class RexProgram {
    * fail</code> is false, merely returns whether the program is valid.
    *
    * @param litmus What to do if an error is detected
+   * @param context Context of enclosing {@link RelNode}, for validity checking,
+   *                or null if not known
    * @return Whether the program is valid
    */
-  public boolean isValid(Litmus litmus) {
+  public boolean isValid(Litmus litmus, RelNode.Context context) {
     if (inputRowType == null) {
       return litmus.fail(null);
     }
@@ -441,19 +476,7 @@ public class RexProgram {
       return litmus.fail(null);
     }
     final Checker checker =
-        new Checker(
-            litmus,
-            inputRowType,
-            new AbstractList<RelDataType>() {
-              public RelDataType get(int index) {
-                return exprs.get(index).getType();
-              }
-
-              @Override public int size() {
-                return exprs.size();
-              }
-              // CHECKSTYLE: IGNORE 1
-            });
+        new Checker(inputRowType, RexUtil.types(exprs), null, litmus);
     if (condition != null) {
       if (!SqlTypeUtil.inBooleanFamily(condition.getType())) {
         return litmus.fail("condition must be boolean");
@@ -521,7 +544,7 @@ public class RexProgram {
    * <p>Neither list is null.
    * The filters are evaluated first. */
   public Pair<ImmutableList<RexNode>, ImmutableList<RexNode>> split() {
-    final List<RexNode> filters = Lists.newArrayList();
+    final List<RexNode> filters = new ArrayList<>();
     if (condition != null) {
       RelOptUtil.decomposeConjunction(expandLocalRef(condition), filters);
     }
@@ -535,10 +558,10 @@ public class RexProgram {
   /**
    * Given a list of collations which hold for the input to this program,
    * returns a list of collations which hold for its output. The result is
-   * mutable.
+   * mutable and sorted.
    */
   public List<RelCollation> getCollations(List<RelCollation> inputCollations) {
-    List<RelCollation> outputCollations = new ArrayList<>(1);
+    final List<RelCollation> outputCollations = new ArrayList<>();
     deduceCollations(
         outputCollations,
         inputRowType.getFieldCount(), projects,
@@ -548,7 +571,7 @@ public class RexProgram {
 
   /**
    * Given a list of expressions and a description of which are ordered,
-   * computes a list of collations. The result is mutable.
+   * populates a list of collations, sorted in natural order.
    */
   public static void deduceCollations(
       List<RelCollation> outputCollations,
@@ -573,14 +596,14 @@ public class RexProgram {
         if (target < 0) {
           continue loop;
         }
-        fieldCollations.add(
-            fieldCollation.copy(target));
+        fieldCollations.add(fieldCollation.withFieldIndex(target));
       }
 
       // Success -- all of the source fields of this key are mapped
       // to the output.
       outputCollations.add(RelCollations.of(fieldCollations));
     }
+    outputCollations.sort(Ordering.natural());
   }
 
   /**
@@ -762,7 +785,7 @@ public class RexProgram {
    * @return whether in canonical form
    */
   public boolean isNormalized(Litmus litmus, RexBuilder rexBuilder) {
-    final RexProgram normalizedProgram = normalize(rexBuilder, false);
+    final RexProgram normalizedProgram = normalize(rexBuilder, null);
     String normalized = normalizedProgram.toString();
     String string = toString();
     if (!normalized.equals(string)) {
@@ -778,18 +801,52 @@ public class RexProgram {
    * Creates a simplified/normalized copy of this program.
    *
    * @param rexBuilder Rex builder
-   * @param simplify Whether to simplify (in addition to normalizing)
+   * @param simplify Simplifier to simplify (in addition to normalizing),
+   *     or null to not simplify
    * @return Normalized program
    */
-  public RexProgram normalize(RexBuilder rexBuilder, boolean simplify) {
+  public RexProgram normalize(RexBuilder rexBuilder, RexSimplify simplify) {
     // Normalize program by creating program builder from the program, then
     // converting to a program. getProgram does not need to normalize
     // because the builder was normalized on creation.
-    assert isValid(Litmus.THROW);
+    assert isValid(Litmus.THROW, null);
     final RexProgramBuilder builder =
         RexProgramBuilder.create(rexBuilder, inputRowType, exprs, projects,
             condition, outputRowType, true, simplify);
     return builder.getProgram(false);
+  }
+
+  @Deprecated // to be removed before 2.0
+  public RexProgram normalize(RexBuilder rexBuilder, boolean simplify) {
+    final RelOptPredicateList predicates = RelOptPredicateList.EMPTY;
+    return normalize(rexBuilder, simplify
+        ? new RexSimplify(rexBuilder, predicates, RexUtil.EXECUTOR)
+        : null);
+  }
+
+  /**
+   * Returns a partial mapping of a set of project expressions.
+   *
+   * <p>The mapping is an inverse function.
+   * Every target has a source field, but
+   * a source might have 0, 1 or more targets.
+   * Project expressions that do not consist of
+   * a mapping are ignored.
+   *
+   * @param inputFieldCount Number of input fields
+   * @return Mapping of a set of project expressions, never null
+   */
+  public Mappings.TargetMapping getPartialMapping(int inputFieldCount) {
+    Mappings.TargetMapping mapping =
+        Mappings.create(MappingType.INVERSE_FUNCTION,
+            inputFieldCount, projects.size());
+    for (Ord<RexLocalRef> exp : Ord.zip(projects)) {
+      RexNode rexNode = expandLocalRef(exp.e);
+      if (rexNode instanceof RexInputRef) {
+        mapping.set(((RexInputRef) rexNode).getIndex(), exp.i);
+      }
+    }
+    return mapping;
   }
 
   //~ Inner Classes ----------------------------------------------------------
@@ -803,20 +860,22 @@ public class RexProgram {
     /**
      * Creates a Checker.
      *
-     * @param litmus               Whether to fail
      * @param inputRowType         Types of the input fields
      * @param internalExprTypeList Types of the internal expressions
+     * @param context              Context of the enclosing {@link RelNode},
+     *                             or null
+     * @param litmus               Whether to fail
      */
-    public Checker(Litmus litmus,
-        RelDataType inputRowType,
-        List<RelDataType> internalExprTypeList) {
-      super(inputRowType, litmus);
+    Checker(RelDataType inputRowType,
+        List<RelDataType> internalExprTypeList, RelNode.Context context,
+        Litmus litmus) {
+      super(inputRowType, context, litmus);
       this.internalExprTypeList = internalExprTypeList;
     }
 
-    // override RexChecker; RexLocalRef is illegal in most rex expressions,
-    // but legal in a program
-    public Boolean visitLocalRef(RexLocalRef localRef) {
+    /** Overrides {@link RexChecker} method, because {@link RexLocalRef} is
+     * is illegal in most rex expressions, but legal in a program. */
+    @Override public Boolean visitLocalRef(RexLocalRef localRef) {
       final int index = localRef.getIndex();
       if ((index < 0) || (index >= internalExprTypeList.size())) {
         ++failCount;
@@ -841,7 +900,7 @@ public class RexProgram {
   static class ExpansionShuttle extends RexShuttle {
     private final List<RexNode> exprs;
 
-    public ExpansionShuttle(List<RexNode> exprs) {
+    ExpansionShuttle(List<RexNode> exprs) {
       this.exprs = exprs;
     }
 

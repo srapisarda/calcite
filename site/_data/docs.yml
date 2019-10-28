@@ -24,7 +24,9 @@
 - title: Advanced
   docs:
   - adapter
+  - spatial
   - stream
+  - materialized_views
   - lattice
 
 - title: Avatica

@@ -39,7 +39,6 @@ import org.apache.calcite.linq4j.tree.Expressions;
 import org.apache.calcite.linq4j.tree.ParameterExpression;
 
 import com.example.Linq4jExample;
-
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -52,6 +51,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
@@ -61,6 +61,8 @@ import static org.hamcrest.CoreMatchers.endsWith;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.nullValue;
+import static org.hamcrest.CoreMatchers.sameInstance;
+import static org.hamcrest.core.IsNot.not;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -74,69 +76,28 @@ import static org.junit.Assert.fail;
  * Tests for LINQ4J.
  */
 public class Linq4jTest {
-  public static final Function1<Employee, String> EMP_NAME_SELECTOR =
-      new Function1<Employee, String>() {
-        public String apply(Employee employee) {
-          return employee.name;
-        }
-      };
+  public static final Function1<Employee, String> EMP_NAME_SELECTOR = employee -> employee.name;
 
   public static final Function1<Employee, Integer> EMP_DEPTNO_SELECTOR =
-      new Function1<Employee, Integer>() {
-        public Integer apply(Employee employee) {
-          return employee.deptno;
-        }
-      };
+      employee -> employee.deptno;
 
-  public static final Function1<Employee, Integer> EMP_EMPNO_SELECTOR =
-      new Function1<Employee, Integer>() {
-        public Integer apply(Employee employee) {
-          return employee.empno;
-        }
-      };
+  public static final Function1<Employee, Integer> EMP_EMPNO_SELECTOR = employee -> employee.empno;
 
-  public static final Function1<Department, Enumerable<Employee>>
-  DEPT_EMPLOYEES_SELECTOR =
-      new Function1<Department, Enumerable<Employee>>() {
-        public Enumerable<Employee> apply(Department a0) {
-          return Linq4j.asEnumerable(a0.employees);
-        }
-      };
+  public static final Function1<Department, Enumerable<Employee>> DEPT_EMPLOYEES_SELECTOR =
+      a0 -> Linq4j.asEnumerable(a0.employees);
 
   public static final Function1<Department, String> DEPT_NAME_SELECTOR =
-      new Function1<Department, String>() {
-        public String apply(Department department) {
-          return department.name;
-        }
-      };
+      department -> department.name;
 
   public static final Function1<Department, Integer> DEPT_DEPTNO_SELECTOR =
-      new Function1<Department, Integer>() {
-        public Integer apply(Department department) {
-          return department.deptno;
-        }
-      };
+      department -> department.deptno;
 
   public static final IntegerFunction1<Department> DEPT_DEPTNO_SELECTOR2 =
-      new IntegerFunction1<Department>() {
-        public int apply(Department department) {
-          return department.deptno;
-        }
-      };
+      department -> department.deptno;
 
-  public static final Function1<Object, Integer> ONE_SELECTOR =
-      new Function1<Object, Integer>() {
-        public Integer apply(Object employee) {
-          return 1;
-        }
-      };
+  public static final Function1<Object, Integer> ONE_SELECTOR = employee -> 1;
 
-  private static final Function2<Object, Object, Integer> PAIR_SELECTOR =
-      new Function2<Object, Object, Integer>() {
-        public Integer apply(Object employee, Object v2) {
-          return 1;
-        }
-      };
+  private static final Function2<Object, Object, Integer> PAIR_SELECTOR = (employee, v2) -> 1;
 
   @Test public void testSelect() {
     List<String> names =
@@ -149,12 +110,7 @@ public class Linq4jTest {
   @Test public void testWhere() {
     List<String> names =
         Linq4j.asEnumerable(emps)
-            .where(
-                new Predicate1<Employee>() {
-                  public boolean apply(Employee employee) {
-                    return employee.deptno < 15;
-                  }
-                })
+            .where(employee -> employee.deptno < 15)
             .select(EMP_NAME_SELECTOR)
             .toList();
     assertEquals("[Fred, Eric, Janet]", names.toString());
@@ -164,12 +120,7 @@ public class Linq4jTest {
     // Returns every other employee.
     List<String> names =
         Linq4j.asEnumerable(emps)
-            .where(
-                new Predicate2<Employee, Integer>() {
-                  public boolean apply(Employee employee, Integer n) {
-                    return n % 2 == 0;
-                  }
-                })
+            .where((employee, n) -> n % 2 == 0)
             .select(EMP_NAME_SELECTOR)
             .toList();
     assertEquals("[Fred, Eric]", names.toString());
@@ -179,12 +130,7 @@ public class Linq4jTest {
     final List<String> nameSeqs =
         Linq4j.asEnumerable(depts)
             .selectMany(DEPT_EMPLOYEES_SELECTOR)
-            .select(
-                new Function2<Employee, Integer, String>() {
-                  public String apply(Employee v1, Integer v2) {
-                    return "#" + v2 + ": " + v1.name;
-                  }
-                })
+            .select((v1, v2) -> "#" + v2 + ": " + v1.name)
             .toList();
     assertEquals(
         "[#0: Fred, #1: Eric, #2: Janet, #3: Bill]", nameSeqs.toString());
@@ -197,12 +143,7 @@ public class Linq4jTest {
 
   @Test public void testCountPredicate() {
     final int count =
-        Linq4j.asEnumerable(depts).count(
-            new Predicate1<Department>() {
-              public boolean apply(Department v1) {
-                return v1.employees.size() > 0;
-              }
-            });
+        Linq4j.asEnumerable(depts).count(v1 -> v1.employees.size() > 0);
     assertEquals(2, count);
   }
 
@@ -213,27 +154,14 @@ public class Linq4jTest {
 
   @Test public void testLongCountPredicate() {
     final long count =
-        Linq4j.asEnumerable(depts).longCount(
-            new Predicate1<Department>() {
-              public boolean apply(Department v1) {
-                return v1.employees.size() > 0;
-              }
-            });
+        Linq4j.asEnumerable(depts).longCount(v1 -> v1.employees.size() > 0);
     assertEquals(2, count);
   }
 
   @Test public void testAllPredicate() {
-    Predicate1<Employee> allEmpnoGE100 = new Predicate1<Employee>() {
-      public boolean apply(Employee emp) {
-        return emp.empno >= 100;
-      }
-    };
+    Predicate1<Employee> allEmpnoGE100 = emp -> emp.empno >= 100;
 
-    Predicate1<Employee> allEmpnoGT100 = new Predicate1<Employee>() {
-      public boolean apply(Employee emp) {
-        return emp.empno > 100;
-      }
-    };
+    Predicate1<Employee> allEmpnoGT100 = emp -> emp.empno > 100;
 
     assertTrue(Linq4j.asEnumerable(emps).all(allEmpnoGE100));
     assertFalse(Linq4j.asEnumerable(emps).all(allEmpnoGT100));
@@ -246,17 +174,9 @@ public class Linq4jTest {
   }
 
   @Test public void testAnyPredicate() {
-    Predicate1<Department> deptoNameIT = new Predicate1<Department>() {
-      public boolean apply(Department v1) {
-        return v1.name != null && v1.name.equals("IT");
-      }
-    };
+    Predicate1<Department> deptoNameIT = v1 -> v1.name != null && v1.name.equals("IT");
 
-    Predicate1<Department> deptoNameSales = new Predicate1<Department>() {
-      public boolean apply(Department v1) {
-        return v1.name != null && v1.name.equals("Sales");
-      }
-    };
+    Predicate1<Department> deptoNameSales = v1 -> v1.name != null && v1.name.equals("Sales");
 
     assertFalse(Linq4j.asEnumerable(depts).any(deptoNameIT));
     assertTrue(Linq4j.asEnumerable(depts).any(deptoNameSales));
@@ -313,11 +233,7 @@ public class Linq4jTest {
             .select(DEPT_NAME_SELECTOR)
             .aggregate(
                 null,
-                new Function2<String, String, String>() {
-                  public String apply(String v1, String v2) {
-                    return v1 == null ? v2 : v1 + "," + v2;
-                  }
-                }));
+                (Function2<String, String, String>) (v1, v2) -> v1 == null ? v2 : v1 + "," + v2));
   }
 
   @Test public void testToMap() {
@@ -331,14 +247,16 @@ public class Linq4jTest {
   @Test public void testToMapWithComparer() {
     final Map<String, String> map =
         Linq4j.asEnumerable(Arrays.asList("foo", "bar", "far"))
-            .toMap(Functions.<String>identitySelector(), new EqualityComparer<String>() {
-              public boolean equal(String v1, String v2) {
-                return String.CASE_INSENSITIVE_ORDER.compare(v1, v2) == 0;
-              }
-              public int hashCode(String s) {
-                return s == null ? Objects.hashCode(null) : s.toLowerCase().hashCode();
-              }
-            });
+            .toMap(Functions.identitySelector(),
+                new EqualityComparer<String>() {
+                  public boolean equal(String v1, String v2) {
+                    return String.CASE_INSENSITIVE_ORDER.compare(v1, v2) == 0;
+                  }
+                  public int hashCode(String s) {
+                    return s == null ? Objects.hashCode(null)
+                        : s.toLowerCase(Locale.ROOT).hashCode();
+                  }
+                });
     assertEquals(3, map.size());
     assertTrue(map.get("foo").equals("foo"));
     assertTrue(map.get("Foo").equals("foo"));
@@ -356,18 +274,15 @@ public class Linq4jTest {
   @Test public void testToMap2WithComparer() {
     final Map<String, String> map =
         Linq4j.asEnumerable(Arrays.asList("foo", "bar", "far"))
-            .toMap(Functions.<String>identitySelector(),
-                new Function1<String, String>() {
-                  public String apply(String x) {
-                    return x == null ? null : x.toUpperCase();
-                  }
-                },
+            .toMap(Functions.identitySelector(),
+                x -> x == null ? null : x.toUpperCase(Locale.ROOT),
                 new EqualityComparer<String>() {
                   public boolean equal(String v1, String v2) {
                     return String.CASE_INSENSITIVE_ORDER.compare(v1, v2) == 0;
                   }
                   public int hashCode(String s) {
-                    return s == null ? Objects.hashCode(null) : s.toLowerCase().hashCode();
+                    return s == null ? Objects.hashCode(null)
+                        : s.toLowerCase(Locale.ROOT).hashCode();
                   }
                 });
     assertEquals(3, map.size());
@@ -426,13 +341,8 @@ public class Linq4jTest {
 
     assertEquals(
         "[10:3, 30:1]",
-        lookup.applyResultSelector(
-            new Function2<Integer, Enumerable<String>, String>() {
-              public String apply(Integer v1, Enumerable<String> v2) {
-                return v1 + ":" + v2.count();
-              }
-            })
-            .orderBy(Functions.<String>identitySelector())
+        lookup.applyResultSelector((v1, v2) -> v1 + ":" + v2.count())
+            .orderBy(Functions.identitySelector())
             .toList().toString());
   }
 
@@ -534,17 +444,9 @@ public class Linq4jTest {
   }
 
   @Test public void testFirstPredicate1() {
-    Predicate1<String> startWithS = new Predicate1<String>() {
-      public boolean apply(String s) {
-        return s != null && Character.toString(s.charAt(0)).equals("S");
-      }
-    };
+    Predicate1<String> startWithS = s -> s != null && Character.toString(s.charAt(0)).equals("S");
 
-    Predicate1<Integer> numberGT15 = new Predicate1<Integer>() {
-      public boolean apply(Integer i) {
-        return i > 15;
-      }
-    };
+    Predicate1<Integer> numberGT15 = i -> i > 15;
 
     String[] people = {"Brill", "Smith", "Simpsom"};
     String[] peopleWithoutCharS = {"Brill", "Andrew", "Alice"};
@@ -574,17 +476,9 @@ public class Linq4jTest {
   }
 
   @Test public void testFirstOrDefaultPredicate1() {
-    Predicate1<String> startWithS = new Predicate1<String>() {
-      public boolean apply(String s) {
-        return s != null && Character.toString(s.charAt(0)).equals("S");
-      }
-    };
+    Predicate1<String> startWithS = s -> s != null && Character.toString(s.charAt(0)).equals("S");
 
-    Predicate1<Integer> numberGT15 = new Predicate1<Integer>() {
-      public boolean apply(Integer i) {
-        return i > 15;
-      }
-    };
+    Predicate1<Integer> numberGT15 = i -> i > 15;
 
     String[] people = {"Brill", "Smith", "Simpsom"};
     String[] peopleWithoutCharS = {"Brill", "Andrew", "Alice"};
@@ -639,17 +533,9 @@ public class Linq4jTest {
   }
 
   @Test public void testSinglePredicate1() {
-    Predicate1<String> startWithS = new Predicate1<String>() {
-      public boolean apply(String s) {
-        return s != null && Character.toString(s.charAt(0)).equals("S");
-      }
-    };
+    Predicate1<String> startWithS = s -> s != null && Character.toString(s.charAt(0)).equals("S");
 
-    Predicate1<Integer> numberGT15 = new Predicate1<Integer>() {
-      public boolean apply(Integer i) {
-        return i > 15;
-      }
-    };
+    Predicate1<Integer> numberGT15 = i -> i > 15;
 
     String[] people = {"Brill", "Smith"};
     String[] twoPeopleWithCharS = {"Brill", "Smith", "Simpson"};
@@ -693,17 +579,9 @@ public class Linq4jTest {
 
   @Test
   public void testSingleOrDefaultPredicate1() {
-    Predicate1<String> startWithS = new Predicate1<String>() {
-      public boolean apply(String s) {
-        return s != null && Character.toString(s.charAt(0)).equals("S");
-      }
-    };
+    Predicate1<String> startWithS = s -> s != null && Character.toString(s.charAt(0)).equals("S");
 
-    Predicate1<Integer> numberGT15 = new Predicate1<Integer>() {
-      public boolean apply(Integer i) {
-        return i > 15;
-      }
-    };
+    Predicate1<Integer> numberGT15 = i -> i > 15;
 
     String[] people = {"Brill", "Smith"};
     String[] twoPeopleWithCharS = {"Brill", "Smith", "Simpson"};
@@ -733,9 +611,10 @@ public class Linq4jTest {
 
   @SuppressWarnings("UnnecessaryBoxing")
   @Test public void testIdentityEqualityComparer() {
-    final Integer one = new Integer(1);
-    final Integer one2 = new Integer(1);
-    final Integer two = new Integer(2);
+    final Integer one = 1000;
+    final Integer one2 = Integer.valueOf(one.toString());
+    assertThat(one, not(sameInstance(one2)));
+    final Integer two = 2;
     final EqualityComparer<Integer> idComparer = Functions.identityComparer();
     assertTrue(idComparer.equal(one, one));
     assertTrue(idComparer.equal(one, one2));
@@ -744,12 +623,7 @@ public class Linq4jTest {
 
   @Test public void testSelectorEqualityComparer() {
     final EqualityComparer<Employee> comparer =
-        Functions.selectorComparer(
-            new Function1<Employee, Object>() {
-              public Object apply(Employee a0) {
-                return a0.deptno;
-              }
-            });
+        Functions.selectorComparer((Function1<Employee, Object>) a0 -> a0.deptno);
     assertTrue(comparer.equal(emps[0], emps[0]));
     assertEquals(comparer.hashCode(emps[0]), comparer.hashCode(emps[0]));
 
@@ -788,7 +662,7 @@ public class Linq4jTest {
 
     StringBuilder buf = new StringBuilder();
     for (Grouping<String, Employee> grouping
-        : lookup.orderBy(Linq4jTest.<String, Employee>groupingKeyExtractor())) {
+        : lookup.orderBy(Linq4jTest.groupingKeyExtractor())) {
       buf.append(grouping).append("\n");
     }
     assertEquals(
@@ -797,13 +671,8 @@ public class Linq4jTest {
         buf.toString());
   }
 
-  private static <K extends Comparable, V> Function1<Grouping<K, V>, K>
-  groupingKeyExtractor() {
-    return new Function1<Grouping<K, V>, K>() {
-      public K apply(Grouping<K, V> a0) {
-        return a0.getKey();
-      }
-    };
+  private static <K extends Comparable, V> Function1<Grouping<K, V>, K> groupingKeyExtractor() {
+    return Grouping::getKey;
   }
 
   /**
@@ -814,20 +683,11 @@ public class Linq4jTest {
     String s =
         Linq4j.asEnumerable(emps)
             .groupBy(
-                EMP_DEPTNO_SELECTOR, new Function0<String>() {
-                  public String apply() {
-                    return null;
-                  }
-                }, new Function2<String, Employee, String>() {
-                  public String apply(String v1, Employee e0) {
-                    return v1 == null ? e0.name : (v1 + "+" + e0.name);
-                  }
-                }, new Function2<Integer, String, String>() {
-                  public String apply(Integer v1, String v2) {
-                    return v1 + ": " + v2;
-                  }
-                })
-            .orderBy(Functions.<String>identitySelector())
+                EMP_DEPTNO_SELECTOR,
+                (Function0<String>) () -> null,
+                (v1, e0) -> v1 == null ? e0.name : (v1 + "+" + e0.name),
+                (v1, v2) -> v1 + ": " + v2)
+            .orderBy(Functions.identitySelector())
             .toList()
             .toString();
     assertEquals(
@@ -845,21 +705,8 @@ public class Linq4jTest {
     String s =
         Linq4j.asEnumerable(emps)
             .aggregate(
-                new Function0<String>() {
-                  public String apply() {
-                    return null;
-                  }
-                }.apply(), //CHECKSTYLE: IGNORE 0
-                new Function2<String, Employee, String>() {
-                  public String apply(String v1, Employee e0) {
-                    return v1 == null ? e0.name : (v1 + "+" + e0.name);
-                  }
-                },
-                new Function1<String, String>() {
-                  public String apply(String v2) {
-                    return "<no key>: " + v2;
-                  }
-                });
+                ((Function0<String>) () -> null).apply(), //CHECKSTYLE: IGNORE 0
+                (v1, e0) -> v1 == null ? e0.name : (v1 + "+" + e0.name), v2 -> "<no key>: " + v2);
     assertEquals(
         "<no key>: Fred+Bill+Eric+Janet",
         s);
@@ -899,11 +746,7 @@ public class Linq4jTest {
 
   @Test public void testTransformEnumerator() {
     final List<String> strings = Arrays.asList("one", "two", "three");
-    final Function1<String, Integer> func = new Function1<String, Integer>() {
-      public Integer apply(String a0) {
-        return a0.length();
-      }
-    };
+    final Function1<String, Integer> func = String::length;
     final Enumerator<Integer> enumerator =
         Linq4j.transform(Linq4j.enumerator(strings), func);
     assertThat(enumerator.moveNext(), is(true));
@@ -915,7 +758,7 @@ public class Linq4jTest {
     assertThat(enumerator.moveNext(), is(false));
 
     final Enumerator<Integer> enumerator2 =
-        Linq4j.transform(Linq4j.<String>emptyEnumerator(), func);
+        Linq4j.transform(Linq4j.emptyEnumerator(), func);
     assertThat(enumerator2.moveNext(), is(false));
   }
 
@@ -1005,8 +848,8 @@ public class Linq4jTest {
 
   @Test public void testIntersect() {
     final Employee[] emps2 = {
-      new Employee(150, "Theodore", 10),
-      emps[3],
+        new Employee(150, "Theodore", 10),
+        emps[3],
     };
     assertEquals(
         1,
@@ -1017,8 +860,8 @@ public class Linq4jTest {
 
   @Test public void testExcept() {
     final Employee[] emps2 = {
-      new Employee(150, "Theodore", 10),
-      emps[3],
+        new Employee(150, "Theodore", 10),
+        emps[3],
     };
     assertEquals(
         3,
@@ -1029,10 +872,10 @@ public class Linq4jTest {
 
   @Test public void testDistinct() {
     final Employee[] emps2 = {
-      new Employee(150, "Theodore", 10),
-      emps[3],
-      emps[0],
-      emps[3],
+        new Employee(150, "Theodore", 10),
+        emps[3],
+        emps[0],
+        emps[3],
     };
     assertEquals(
         3,
@@ -1043,10 +886,10 @@ public class Linq4jTest {
 
   @Test public void testDistinctWithEqualityComparer() {
     final Employee[] emps2 = {
-      new Employee(150, "Theodore", 10),
-      emps[3],
-      emps[1],
-      emps[3],
+        new Employee(150, "Theodore", 10),
+        emps[3],
+        emps[1],
+        emps[3],
     };
     assertEquals(
         2,
@@ -1074,20 +917,17 @@ public class Linq4jTest {
                 Linq4j.asEnumerable(emps)
                     .concat(Linq4j.asEnumerable(badEmps)),
                 DEPT_DEPTNO_SELECTOR,
-                EMP_DEPTNO_SELECTOR,
-                new Function2<Department, Enumerable<Employee>, String>() {
-                  public String apply(Department v1, Enumerable<Employee> v2) {
-                    final StringBuilder buf = new StringBuilder("[");
-                    int n = 0;
-                    for (Employee employee : v2) {
-                      if (n++ > 0) {
-                        buf.append(", ");
-                      }
-                      buf.append(employee.name);
+                EMP_DEPTNO_SELECTOR, (v1, v2) -> {
+                  final StringBuilder buf = new StringBuilder("[");
+                  int n = 0;
+                  for (Employee employee : v2) {
+                    if (n++ > 0) {
+                      buf.append(", ");
                     }
-                    return buf.append("] work(s) in ").append(v1.name)
-                        .toString();
+                    buf.append(employee.name);
                   }
+                  return buf.append("] work(s) in ").append(v1.name)
+                      .toString();
                 })
             .toList()
             .toString();
@@ -1108,20 +948,17 @@ public class Linq4jTest {
                 Linq4j.asEnumerable(emps)
                     .concat(Linq4j.asEnumerable(badEmps)),
                 DEPT_DEPTNO_SELECTOR,
-                EMP_DEPTNO_SELECTOR,
-                new Function2<Department, Enumerable<Employee>, String>() {
-                  public String apply(Department v1, Enumerable<Employee> v2) {
-                    final StringBuilder buf = new StringBuilder("[");
-                    int n = 0;
-                    for (Employee employee : v2) {
-                      if (n++ > 0) {
-                        buf.append(", ");
-                      }
-                      buf.append(employee.name);
+                EMP_DEPTNO_SELECTOR, (v1, v2) -> {
+                  final StringBuilder buf = new StringBuilder("[");
+                  int n = 0;
+                  for (Employee employee : v2) {
+                    if (n++ > 0) {
+                      buf.append(", ");
                     }
-                    return buf.append("] work(s) in ").append(v1.name)
-                        .toString();
+                    buf.append(employee.name);
                   }
+                  return buf.append("] work(s) in ").append(v1.name)
+                      .toString();
                 },
                 new EqualityComparer<Integer>() {
                   public boolean equal(Integer v1, Integer v2) {
@@ -1143,16 +980,11 @@ public class Linq4jTest {
     String s =
         Linq4j.asEnumerable(emps)
             .concat(Linq4j.asEnumerable(badEmps))
-            .join(
+            .hashJoin(
                 Linq4j.asEnumerable(depts),
                 EMP_DEPTNO_SELECTOR,
-                DEPT_DEPTNO_SELECTOR,
-                new Function2<Employee, Department, String>() {
-                  public String apply(Employee v1, Department v2) {
-                    return v1.name + " works in " + v2.name;
-                  }
-                })
-            .orderBy(Functions.<String>identitySelector())
+                DEPT_DEPTNO_SELECTOR, (v1, v2) -> v1.name + " works in " + v2.name)
+            .orderBy(Functions.identitySelector())
             .toList()
             .toString();
     assertEquals(
@@ -1171,17 +1003,12 @@ public class Linq4jTest {
     String s =
         Linq4j.asEnumerable(emps)
             .concat(Linq4j.asEnumerable(badEmps))
-            .join(
+            .hashJoin(
                 Linq4j.asEnumerable(depts),
                 EMP_DEPTNO_SELECTOR,
-                DEPT_DEPTNO_SELECTOR,
-                new Function2<Employee, Department, String>() {
-                  public String apply(Employee v1, Department v2) {
-                    return v1.name + " works in "
-                        + (v2 == null ? null : v2.name);
-                  }
-                }, null, false, true)
-            .orderBy(Functions.<String>identitySelector())
+                DEPT_DEPTNO_SELECTOR, (v1, v2) -> v1.name + " works in "
+                    + (v2 == null ? null : v2.name), null, false, true)
+            .orderBy(Functions.identitySelector())
             .toList()
             .toString();
     assertEquals(
@@ -1201,17 +1028,12 @@ public class Linq4jTest {
     String s =
         Linq4j.asEnumerable(emps)
             .concat(Linq4j.asEnumerable(badEmps))
-            .join(
+            .hashJoin(
                 Linq4j.asEnumerable(depts),
                 EMP_DEPTNO_SELECTOR,
-                DEPT_DEPTNO_SELECTOR,
-                new Function2<Employee, Department, String>() {
-                  public String apply(Employee v1, Department v2) {
-                    return (v1 == null ? null : v1.name)
-                        + " works in " + (v2 == null ? null : v2.name);
-                  }
-                }, null, true, false)
-            .orderBy(Functions.<String>identitySelector())
+                DEPT_DEPTNO_SELECTOR, (v1, v2) -> (v1 == null ? null : v1.name)
+                    + " works in " + (v2 == null ? null : v2.name), null, true, false)
+            .orderBy(Functions.identitySelector())
             .toList()
             .toString();
     assertEquals(
@@ -1231,17 +1053,12 @@ public class Linq4jTest {
     String s =
         Linq4j.asEnumerable(emps)
             .concat(Linq4j.asEnumerable(badEmps))
-            .join(
+            .hashJoin(
                 Linq4j.asEnumerable(depts),
                 EMP_DEPTNO_SELECTOR,
-                DEPT_DEPTNO_SELECTOR,
-                new Function2<Employee, Department, String>() {
-                  public String apply(Employee v1, Department v2) {
-                    return (v1 == null ? null : v1.name)
-                        + " works in " + (v2 == null ? null : v2.name);
-                  }
-                }, null, true, true)
-            .orderBy(Functions.<String>identitySelector())
+                DEPT_DEPTNO_SELECTOR, (v1, v2) -> (v1 == null ? null : v1.name)
+                    + " works in " + (v2 == null ? null : v2.name), null, true, true)
+            .orderBy(Functions.identitySelector())
             .toList()
             .toString();
     assertEquals(
@@ -1257,7 +1074,7 @@ public class Linq4jTest {
   @Test public void testJoinCartesianProduct() {
     int n =
         Linq4j.asEnumerable(emps)
-            .<Department, Integer, Integer>join(
+            .<Department, Integer, Integer>hashJoin(
                 Linq4j.asEnumerable(depts),
                 (Function1) ONE_SELECTOR,
                 (Function1) ONE_SELECTOR,
@@ -1281,19 +1098,19 @@ public class Linq4jTest {
 
     final Enumerator<List<String>> product0 =
         Linq4j.product(
-            Arrays.asList(Linq4j.<String>emptyEnumerator()));
+            Arrays.asList(Linq4j.emptyEnumerator()));
     assertFalse(product0.moveNext());
 
     final Enumerator<List<String>> productFullEmpty =
         Linq4j.product(
             Arrays.asList(
-                abc.enumerator(), Linq4j.<String>emptyEnumerator()));
+                abc.enumerator(), Linq4j.emptyEnumerator()));
     assertFalse(productFullEmpty.moveNext());
 
     final Enumerator<List<String>> productEmptyFull =
         Linq4j.product(
             Arrays.asList(
-                abc.enumerator(), Linq4j.<String>emptyEnumerator()));
+                abc.enumerator(), Linq4j.emptyEnumerator()));
     assertFalse(productEmptyFull.moveNext());
 
     final Enumerator<List<String>> productAbcXy =
@@ -1343,12 +1160,7 @@ public class Linq4jTest {
         Linq4j.asEnumerable(emps)
             .asQueryable()
             .where(
-                Expressions.lambda(
-                    new Predicate1<Employee>() {
-                      public boolean apply(Employee v1) {
-                        return v1.deptno == 10;
-                      }
-                    }));
+                Expressions.lambda(v1 -> v1.deptno == 10));
     assertEquals(3, nh2.count());
 
     // use lambda, this time call whereN
@@ -1361,7 +1173,7 @@ public class Linq4jTest {
             .asQueryable()
             .whereN(
                 Expressions.lambda(
-                    Predicate2.class,
+                    (Class<Predicate2<Employee, Integer>>) (Class) Predicate2.class,
                     Expressions.andAlso(
                         Expressions.equal(
                             Expressions.field(
@@ -1465,12 +1277,7 @@ public class Linq4jTest {
         Linq4j.asEnumerable(depts);
     final List<Department> deptList =
         EnumerableDefaults.takeWhile(
-            enumerableDepts,
-            new Predicate1<Department>() {
-              public boolean apply(Department v1) {
-                return v1.name.contains("e");
-              }
-            }).toList();
+            enumerableDepts, v1 -> v1.name.contains("e")).toList();
 
     // Only one department:
     // 0: Sales --> true
@@ -1504,11 +1311,7 @@ public class Linq4jTest {
   @Test public void testTakeWhileQueryableFunctionExpressionPredicate() {
     final Queryable<Department> queryableDepts =
         Linq4j.asEnumerable(depts).asQueryable();
-    Predicate1<Department> predicate = new Predicate1<Department>() {
-      public boolean apply(Department v1) {
-        return "HR".equals(v1.name);
-      }
-    };
+    Predicate1<Department> predicate = v1 -> "HR".equals(v1.name);
     List<Department> deptList =
         QueryableDefaults.takeWhile(
             queryableDepts, Expressions.lambda(predicate))
@@ -1516,11 +1319,7 @@ public class Linq4jTest {
 
     assertEquals(0, deptList.size());
 
-    predicate = new Predicate1<Department>() {
-      public boolean apply(Department v1) {
-        return "Sales".equals(v1.name);
-      }
-    };
+    predicate = v1 -> "Sales".equals(v1.name);
     deptList =
         QueryableDefaults.takeWhile(
             queryableDepts, Expressions.lambda(predicate))
@@ -1571,29 +1370,14 @@ public class Linq4jTest {
     assertEquals(2, Linq4j.asEnumerable(depts).skip(1).count());
     assertEquals(
         2,
-        Linq4j.asEnumerable(depts).skipWhile(
-            new Predicate1<Department>() {
-              public boolean apply(Department v1) {
-                return v1.name.equals("Sales");
-              }
-            }).count());
+        Linq4j.asEnumerable(depts).skipWhile(v1 -> v1.name.equals("Sales")).count());
     assertEquals(
         3,
-        Linq4j.asEnumerable(depts).skipWhile(
-            new Predicate1<Department>() {
-              public boolean apply(Department v1) {
-                return !v1.name.equals("Sales");
-              }
-            }).count());
+        Linq4j.asEnumerable(depts).skipWhile(v1 -> !v1.name.equals("Sales")).count());
     assertEquals(
         1,
-        Linq4j.asEnumerable(depts).skipWhile(
-            new Predicate2<Department, Integer>() {
-              public boolean apply(Department v1, Integer v2) {
-                return v1.name.equals("Sales")
-                    || v2 == 1;
-              }
-            }).count());
+        Linq4j.asEnumerable(depts).skipWhile((v1, v2) -> v1.name.equals("Sales")
+            || v2 == 1).count());
 
     assertEquals(
         2, Linq4j.asEnumerable(depts).skip(1).count());
@@ -1601,13 +1385,8 @@ public class Linq4jTest {
         0, Linq4j.asEnumerable(depts).skip(5).count());
     assertEquals(
         1,
-        Linq4j.asEnumerable(depts).skipWhile(
-            new Predicate2<Department, Integer>() {
-              public boolean apply(Department v1, Integer v2) {
-                return v1.name.equals("Sales")
-                    || v2 == 1;
-              }
-            }).count());
+        Linq4j.asEnumerable(depts).skipWhile((v1, v2) -> v1.name.equals("Sales")
+            || v2 == 1).count());
 
     assertEquals(
         2, Linq4j.asEnumerable(depts).asQueryable().skip(1).count());
@@ -1616,13 +1395,8 @@ public class Linq4jTest {
     assertEquals(
         1,
         Linq4j.asEnumerable(depts).asQueryable().skipWhileN(
-            Expressions.<Predicate2<Department, Integer>>lambda(
-                new Predicate2<Department, Integer>() {
-                  public boolean apply(Department v1, Integer v2) {
-                    return v1.name.equals("Sales")
-                        || v2 == 1;
-                  }
-                })).count());
+            Expressions.lambda((v1, v2) -> v1.name.equals("Sales")
+                || v2 == 1)).count());
   }
 
   @Test public void testOrderBy() {
@@ -1645,7 +1419,7 @@ public class Linq4jTest {
         Linq4j.asEnumerable(emps)
             .orderBy(EMP_NAME_SELECTOR)
             .orderBy(
-                EMP_DEPTNO_SELECTOR, Collections.<Integer>reverseOrder())
+                EMP_DEPTNO_SELECTOR, Collections.reverseOrder())
             .toList().toString());
   }
 
@@ -1693,12 +1467,7 @@ public class Linq4jTest {
         new Employee(130, "Janet", 10));
     final List<Employee> result = new ArrayList<>();
     Linq4j.asEnumerable(employees)
-        .where(
-            new Predicate1<Employee>() {
-              public boolean apply(Employee e) {
-                return e.name.contains("e");
-              }
-            })
+        .where(e -> e.name.contains("e"))
         .into(result);
     assertEquals(
         "[Employee(name: Fred, deptno:10), Employee(name: Janet, deptno:10)]",
@@ -1718,12 +1487,7 @@ public class Linq4jTest {
     final List<Grouping<Object, Map.Entry<Employee, Department>>> result =
         new ArrayList<>();
     Linq4j.asEnumerable(empDepts.entrySet())
-        .groupBy(
-            new Function1<Map.Entry<Employee, Department>, Object>() {
-              public Object apply(Map.Entry<Employee, Department> entry) {
-                return entry.getValue();
-              }
-            })
+        .groupBy((Function1<Map.Entry<Employee, Department>, Object>) Map.Entry::getValue)
         .into(result);
     assertNotNull(result.toString());
   }
@@ -1879,17 +1643,9 @@ public class Linq4jTest {
   @Test public void testLastWithPredicate() {
     final Enumerable<String> enumerable =
         Linq4j.asEnumerable(Arrays.asList("jimi", "mitch", "ming"));
-    assertEquals("mitch", enumerable.last(new Predicate1<String>() {
-      public boolean apply(String x) {
-        return x.startsWith("mit");
-      }
-    }));
+    assertEquals("mitch", enumerable.last(x -> x.startsWith("mit")));
     try {
-      enumerable.last(new Predicate1<String>() {
-        public boolean apply(String x) {
-          return false;
-        }
-      });
+      enumerable.last(x -> false);
       fail();
     } catch (Exception ignored) {
       // ok
@@ -1898,11 +1654,9 @@ public class Linq4jTest {
     @SuppressWarnings("unchecked")
     final Enumerable<String> emptyEnumerable = Linq4j.asEnumerable(Collections.EMPTY_LIST);
     try {
-      emptyEnumerable.last(new Predicate1<String>() {
-        public boolean apply(String x) {
-          fail();
-          return false;
-        }
+      emptyEnumerable.last(x -> {
+        fail();
+        return false;
       });
       fail();
     } catch (Exception ignored) {
@@ -1913,44 +1667,28 @@ public class Linq4jTest {
   @Test public void testLastOrDefaultWithPredicate() {
     final Enumerable<String> enumerable =
         Linq4j.asEnumerable(Arrays.asList("jimi", "mitch", "ming"));
-    assertEquals("mitch", enumerable.lastOrDefault(new Predicate1<String>() {
-      public boolean apply(String x) {
-        return x.startsWith("mit");
-      }
-    }));
-    assertNull(enumerable.lastOrDefault(new Predicate1<String>() {
-      public boolean apply(String x) {
-        return false;
-      }
-    }));
+    assertEquals("mitch", enumerable.lastOrDefault(x -> x.startsWith("mit")));
+    assertNull(enumerable.lastOrDefault(x -> false));
 
     @SuppressWarnings("unchecked")
     final Enumerable<String> emptyEnumerable = Linq4j.asEnumerable(Collections.EMPTY_LIST);
-    assertNull(emptyEnumerable.lastOrDefault(new Predicate1<String>() {
-      public boolean apply(String x) {
-        fail();
-        return false;
-      }
-    }));
+    assertNull(
+        emptyEnumerable.lastOrDefault(x -> {
+          fail();
+          return false;
+        }));
   }
 
   @Test public void testSelectManyWithIndexableSelector() {
-    final int[] indexRef = new int[]{0};
+    final int[] indexRef = {0};
     final List<String> nameSeqs =
         Linq4j.asEnumerable(depts)
-            .selectMany(new Function2<Department, Integer, Enumerable<Employee>>() {
-              public Enumerable<Employee> apply(Department element, Integer index) {
-                assertEquals(indexRef[0], index.longValue());
-                indexRef[0] = index + 1;
-                return Linq4j.asEnumerable(element.employees);
-              }
+            .selectMany((element, index) -> {
+              assertEquals(indexRef[0], index.longValue());
+              indexRef[0] = index + 1;
+              return Linq4j.asEnumerable(element.employees);
             })
-            .select(
-                new Function2<Employee, Integer, String>() {
-                  public String apply(Employee v1, Integer v2) {
-                    return "#" + v2 + ": " + v1.name;
-                  }
-                })
+            .select((v1, v2) -> "#" + v2 + ": " + v1.name)
             .toList();
     assertEquals(
         "[#0: Fred, #1: Eric, #2: Janet, #3: Bill]", nameSeqs.toString());
@@ -1960,16 +1698,8 @@ public class Linq4jTest {
     final List<String> nameSeqs =
         Linq4j.asEnumerable(depts)
             .selectMany(DEPT_EMPLOYEES_SELECTOR,
-                new Function2<Department, Employee, String>() {
-                  public String apply(Department element, Employee subElement) {
-                    return subElement.name + "@" + element.name;
-                  }
-                })
-            .select(new Function2<String, Integer, String>() {
-              public String apply(String v0, Integer v1) {
-                return "#" + v1 + ": " + v0;
-              }
-            })
+                (element, subElement) -> subElement.name + "@" + element.name)
+            .select((v0, v1) -> "#" + v1 + ": " + v0)
             .toList();
     assertEquals(
         "[#0: Fred@Sales, #1: Eric@Sales, #2: Janet@Sales, #3: Bill@Marketing]",
@@ -1977,27 +1707,15 @@ public class Linq4jTest {
   }
 
   @Test public void testSelectManyWithIndexableSelectorAndResultSelector() {
-    final int[] indexRef = new int[]{0};
+    final int[] indexRef = {0};
     final List<String> nameSeqs =
         Linq4j.asEnumerable(depts)
-            .selectMany(
-                new Function2<Department, Integer, Enumerable<Employee>>() {
-                  public Enumerable<Employee> apply(Department element, Integer index) {
-                    assertEquals(indexRef[0], index.longValue());
-                    indexRef[0] = index + 1;
-                    return Linq4j.asEnumerable(element.employees);
-                  }
-                },
-                new Function2<Department, Employee, String>() {
-                  public String apply(Department element, Employee subElement) {
-                    return subElement.name + "@" + element.name;
-                  }
-                })
-            .select(new Function2<String, Integer, String>() {
-              public String apply(String v0, Integer v1) {
-                return "#" + v1 + ": " + v0;
-              }
-            })
+            .selectMany((element, index) -> {
+              assertEquals(indexRef[0], index.longValue());
+              indexRef[0] = index + 1;
+              return Linq4j.asEnumerable(element.employees);
+            }, (element, subElement) -> subElement.name + "@" + element.name)
+            .select((v0, v1) -> "#" + v1 + ": " + v0)
             .toList();
     assertEquals(
         "[#0: Fred@Sales, #1: Eric@Sales, #2: Janet@Sales, #3: Bill@Marketing]",
@@ -2032,25 +1750,14 @@ public class Linq4jTest {
   }
 
   @Test public void testSequenceEqualWithoutCollection() {
-    final Enumerable<String> enumerable1 = Linq4j.asEnumerable(new Iterable<String>() {
-      public Iterator<String> iterator() {
-        return Arrays.asList("ming", "foo", "bar").iterator();
-      }
-    });
-    final Enumerable<String> enumerable2 = Linq4j.asEnumerable(new Iterable<String>() {
-      public Iterator<String> iterator() {
-        return Arrays.asList("ming", "foo", "bar").iterator();
-      }
-    });
+    final Enumerable<String> enumerable1 = Linq4j.asEnumerable(
+        () -> Arrays.asList("ming", "foo", "bar").iterator());
+    final Enumerable<String> enumerable2 = Linq4j.asEnumerable(
+        () -> Arrays.asList("ming", "foo", "bar").iterator());
     assertTrue(enumerable1.sequenceEqual(enumerable2));
     assertFalse(
         enumerable1.sequenceEqual(
-            Linq4j.asEnumerable(
-                new Iterable<String>() {
-                  public Iterator<String> iterator() {
-                    return Arrays.asList("ming", "foo", "far").iterator();
-                  }
-                })));
+            Linq4j.asEnumerable(() -> Arrays.asList("ming", "foo", "far").iterator())));
 
     try {
       EnumerableDefaults.sequenceEqual(null, enumerable2);
@@ -2107,16 +1814,10 @@ public class Linq4jTest {
   }
 
   @Test public void testSequenceEqualWithComparerWithoutCollection() {
-    final Enumerable<String> enumerable1 = Linq4j.asEnumerable(new Iterable<String>() {
-      public Iterator<String> iterator() {
-        return Arrays.asList("ming", "foo", "bar").iterator();
-      }
-    });
-    final Enumerable<String> enumerable2 = Linq4j.asEnumerable(new Iterable<String>() {
-      public Iterator<String> iterator() {
-        return Arrays.asList("ming", "foo", "bar").iterator();
-      }
-    });
+    final Enumerable<String> enumerable1 = Linq4j.asEnumerable(
+        () -> Arrays.asList("ming", "foo", "bar").iterator());
+    final Enumerable<String> enumerable2 = Linq4j.asEnumerable(
+        () -> Arrays.asList("ming", "foo", "bar").iterator());
     final EqualityComparer<String> equalityComparer = new EqualityComparer<String>() {
       public boolean equal(String v1, String v2) {
         return !Objects.equals(v1, v2); // reverse the equality.
@@ -2126,14 +1827,10 @@ public class Linq4jTest {
       }
     };
     assertFalse(enumerable1.sequenceEqual(enumerable2, equalityComparer));
+    final Enumerable<String> enumerable3 = Linq4j.asEnumerable(
+        () -> Arrays.asList("fun", "lol", "far").iterator());
     assertTrue(
-        enumerable1.sequenceEqual(
-            Linq4j.asEnumerable(
-                new Iterable<String>() {
-                  public Iterator<String> iterator() {
-                    return Arrays.asList("fun", "lol", "far").iterator();
-                  }
-                }), equalityComparer));
+        enumerable1.sequenceEqual(enumerable3, equalityComparer));
 
     try {
       EnumerableDefaults.sequenceEqual(null, enumerable2);
@@ -2156,22 +1853,12 @@ public class Linq4jTest {
     String s =
         Linq4j.asEnumerable(emps)
             .groupBy(EMP_DEPTNO_SELECTOR)
-            .select(new Function1<Grouping<Integer, Employee>, String>() {
-              public String apply(Grouping<Integer, Employee> group) {
-                return String.format("%s: %s",
-                    group.getKey(),
-                    stringJoin("+", group.select(new Function1<Employee, String>() {
-                      public String apply(Employee element) {
-                        return element.name;
-                      }
-                    })));
-              }
-            })
+            .select(group ->
+                String.format(Locale.ROOT, "%s: %s", group.getKey(),
+                    stringJoin("+", group.select(element -> element.name))))
             .toList()
             .toString();
-    assertEquals(
-        "[10: Fred+Eric+Janet, 30: Bill]",
-        s);
+    assertThat(s, is("[10: Fred+Eric+Janet, 30: Bill]"));
   }
 
   @Test public void testGroupByWithKeySelectorAndComparer() {
@@ -2185,38 +1872,24 @@ public class Linq4jTest {
                 return 0;
               }
             })
-            .select(new Function1<Grouping<Integer, Employee>, String>() {
-              public String apply(Grouping<Integer, Employee> group) {
-                return String.format("%s: %s",
-                    group.getKey(),
-                    stringJoin("+", group.select(new Function1<Employee, String>() {
-                      public String apply(Employee element) {
-                        return element.name;
-                      }
-                    })));
-              }
-            })
+            .select(group ->
+                String.format(Locale.ROOT, "%s: %s", group.getKey(),
+                    stringJoin("+", group.select(element -> element.name))))
             .toList()
             .toString();
-    assertEquals(
-        "[10: Fred+Bill+Eric+Janet]",
-        s);
+    assertThat(s, is("[10: Fred+Bill+Eric+Janet]"));
   }
 
   @Test public void testGroupByWithKeySelectorAndElementSelector() {
     String s =
         Linq4j.asEnumerable(emps)
             .groupBy(EMP_DEPTNO_SELECTOR, EMP_NAME_SELECTOR)
-            .select(new Function1<Grouping<Integer, String>, String>() {
-              public String apply(Grouping<Integer, String> group) {
-                return String.format("%s: %s", group.getKey(), stringJoin("+", group));
-              }
-            })
+            .select(group ->
+                String.format(Locale.ROOT, "%s: %s", group.getKey(),
+                    stringJoin("+", group)))
             .toList()
             .toString();
-    assertEquals(
-        "[10: Fred+Eric+Janet, 30: Bill]",
-        s);
+    assertThat(s, is("[10: Fred+Eric+Janet, 30: Bill]"));
   }
 
   /** Equivalent to {@link String}.join, but that method is only in JDK 1.8 and
@@ -2236,19 +1909,18 @@ public class Linq4jTest {
   @Test public void testGroupByWithKeySelectorAndElementSelectorAndComparer() {
     String s =
         Linq4j.asEnumerable(emps)
-            .groupBy(EMP_DEPTNO_SELECTOR, EMP_NAME_SELECTOR,  new EqualityComparer<Integer>() {
-              public boolean equal(Integer v1, Integer v2) {
-                return true;
-              }
-              public int hashCode(Integer integer) {
-                return 0;
-              }
-            })
-            .select(new Function1<Grouping<Integer, String>, String>() {
-              public String apply(Grouping<Integer, String> group) {
-                return String.format("%s: %s", group.getKey(), stringJoin("+", group));
-              }
-            })
+            .groupBy(EMP_DEPTNO_SELECTOR, EMP_NAME_SELECTOR,
+                new EqualityComparer<Integer>() {
+                  public boolean equal(Integer v1, Integer v2) {
+                    return true;
+                  }
+                  public int hashCode(Integer integer) {
+                    return 0;
+                  }
+                })
+            .select(group ->
+                String.format(Locale.ROOT, "%s: %s", group.getKey(),
+                    stringJoin("+", group)))
             .toList()
             .toString();
     assertEquals(
@@ -2259,17 +1931,8 @@ public class Linq4jTest {
   @Test public void testGroupByWithKeySelectorAndResultSelector() {
     String s =
         Linq4j.asEnumerable(emps)
-            .groupBy(EMP_DEPTNO_SELECTOR, new Function2<Integer, Enumerable<Employee>, String>() {
-              public String apply(Integer key, Enumerable<Employee> group) {
-                return String.format("%s: %s",
-                    key,
-                    stringJoin("+", group.select(new Function1<Employee, String>() {
-                      public String apply(Employee element) {
-                        return element.name;
-                      }
-                    })));
-              }
-            })
+            .groupBy(EMP_DEPTNO_SELECTOR, (key, group) -> String.format(Locale.ROOT, "%s: %s", key,
+                stringJoin("+", group.select(element -> element.name))))
             .toList()
             .toString();
     assertEquals(
@@ -2280,24 +1943,17 @@ public class Linq4jTest {
   @Test public void testGroupByWithKeySelectorAndResultSelectorAndComparer() {
     String s =
         Linq4j.asEnumerable(emps)
-            .groupBy(EMP_DEPTNO_SELECTOR, new Function2<Integer, Enumerable<Employee>, String>() {
-              public String apply(Integer key, Enumerable<Employee> group) {
-                return String.format("%s: %s",
-                    key,
-                    stringJoin("+", group.select(new Function1<Employee, String>() {
-                      public String apply(Employee element) {
-                        return element.name;
-                      }
-                    })));
-              }
-            }, new EqualityComparer<Integer>() {
-              public boolean equal(Integer v1, Integer v2) {
-                return true;
-              }
-              public int hashCode(Integer integer) {
-                return 0;
-              }
-            })
+            .groupBy(EMP_DEPTNO_SELECTOR,
+                (key, group) -> String.format(Locale.ROOT, "%s: %s", key,
+                    stringJoin("+", group.select(element -> element.name))),
+                new EqualityComparer<Integer>() {
+                  public boolean equal(Integer v1, Integer v2) {
+                    return true;
+                  }
+                  public int hashCode(Integer integer) {
+                    return 0;
+                  }
+                })
             .toList()
             .toString();
     assertEquals(
@@ -2309,11 +1965,8 @@ public class Linq4jTest {
     String s =
         Linq4j.asEnumerable(emps)
             .groupBy(EMP_DEPTNO_SELECTOR, EMP_NAME_SELECTOR,
-                new Function2<Integer, Enumerable<String>, String>() {
-                  public String apply(Integer key, Enumerable<String> group) {
-                    return String.format("%s: %s", key, stringJoin("+", group));
-                  }
-                })
+                (key, group) -> String.format(Locale.ROOT, "%s: %s", key,
+                    stringJoin("+", group)))
             .toList()
             .toString();
     assertEquals(
@@ -2325,11 +1978,8 @@ public class Linq4jTest {
     String s =
         Linq4j.asEnumerable(emps)
             .groupBy(EMP_DEPTNO_SELECTOR, EMP_NAME_SELECTOR,
-                new Function2<Integer, Enumerable<String>, String>() {
-                  public String apply(Integer key, Enumerable<String> group) {
-                    return String.format("%s: %s", key, stringJoin("+", group));
-                  }
-                },
+                (key, group) -> String.format(Locale.ROOT, "%s: %s", key,
+                    stringJoin("+", group)),
                 new EqualityComparer<Integer>() {
                   public boolean equal(Integer v1, Integer v2) {
                     return true;
@@ -2350,12 +2000,7 @@ public class Linq4jTest {
     final Enumerable<String> e1 = Linq4j.asEnumerable(Arrays.asList("a", "b", "c"));
     final Enumerable<String> e2 = Linq4j.asEnumerable(Arrays.asList("1", "2", "3"));
 
-    final Enumerable<String> zipped = e1.zip(e2,
-      new Function2<String, String, String>() {
-        public String apply(String v0, String v1) {
-          return v0 + v1;
-        }
-      });
+    final Enumerable<String> zipped = e1.zip(e2, (v0, v1) -> v0 + v1);
     assertEquals(3, zipped.count());
     zipped.enumerator().reset();
     for (int i = 0; i < 3; i++) {
@@ -2367,12 +2012,7 @@ public class Linq4jTest {
     final Enumerable<String> e1 = Linq4j.asEnumerable(Arrays.asList("a", "b"));
     final Enumerable<String> e2 = Linq4j.asEnumerable(Arrays.asList("1", "2", "3"));
 
-    final Function2<String, String, String> resultSelector =
-        new Function2<String, String, String>() {
-          public String apply(String v0, String v1) {
-            return v0 + v1;
-          }
-        };
+    final Function2<String, String, String> resultSelector = (v0, v1) -> v0 + v1;
 
     final Enumerable<String> zipped1 = e1.zip(e2, resultSelector);
     assertEquals(2, zipped1.count());
@@ -2512,22 +2152,22 @@ public class Linq4jTest {
   // Cedric works in a non-existent department.
   //CHECKSTYLE: IGNORE 1
   public static final Employee[] badEmps = {
-    new Employee(140, "Cedric", 40),
+      new Employee(140, "Cedric", 40),
   };
 
   //CHECKSTYLE: IGNORE 1
   public static final Employee[] emps = {
-    new Employee(100, "Fred", 10),
-    new Employee(110, "Bill", 30),
-    new Employee(120, "Eric", 10),
-    new Employee(130, "Janet", 10),
+      new Employee(100, "Fred", 10),
+      new Employee(110, "Bill", 30),
+      new Employee(120, "Eric", 10),
+      new Employee(130, "Janet", 10),
   };
 
   //CHECKSTYLE: IGNORE 1
   public static final Department[] depts = {
-    new Department("Sales", 10, Arrays.asList(emps[0], emps[2], emps[3])),
-    new Department("HR", 20, Collections.<Employee>emptyList()),
-    new Department("Marketing", 30, ImmutableList.of(emps[1])),
+      new Department("Sales", 10, Arrays.asList(emps[0], emps[2], emps[3])),
+      new Department("HR", 20, ImmutableList.of()),
+      new Department("Marketing", 30, ImmutableList.of(emps[1])),
   };
 }
 

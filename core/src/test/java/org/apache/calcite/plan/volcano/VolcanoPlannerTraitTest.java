@@ -49,6 +49,8 @@ import org.junit.Test;
 
 import java.util.List;
 
+import static org.apache.calcite.plan.volcano.PlannerTests.newCluster;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -119,7 +121,7 @@ public class VolcanoPlannerTraitTest {
     planner.addRule(new PhysLeafRule());
     planner.addRule(new IterSingleRule());
 
-    RelOptCluster cluster = VolcanoPlannerTest.newCluster(planner);
+    RelOptCluster cluster = newCluster(planner);
 
     NoneLeafRel noneLeafRel =
         RelOptUtil.addTrait(
@@ -170,7 +172,7 @@ public class VolcanoPlannerTraitTest {
     planner.addRule(new IterSingleRule());
     planner.addRule(new IterSinglePhysMergeRule());
 
-    RelOptCluster cluster = VolcanoPlannerTest.newCluster(planner);
+    RelOptCluster cluster = newCluster(planner);
 
     NoneLeafRel noneLeafRel =
         RelOptUtil.addTrait(
@@ -207,7 +209,7 @@ public class VolcanoPlannerTraitTest {
     planner.addRule(new PhysLeafRule());
     planner.addRule(new IterSingleRule2());
 
-    RelOptCluster cluster = VolcanoPlannerTest.newCluster(planner);
+    RelOptCluster cluster = newCluster(planner);
 
     NoneLeafRel noneLeafRel =
         RelOptUtil.addTrait(
@@ -254,6 +256,21 @@ public class VolcanoPlannerTraitTest {
 
     child = child.getInputs().get(0);
     assertTrue(child instanceof PhysLeafRel);
+  }
+
+  @Test public void testPlanWithNoneConvention() {
+    VolcanoPlanner planner = new VolcanoPlanner();
+    planner.addRelTraitDef(ConventionTraitDef.INSTANCE);
+    RelOptCluster cluster = newCluster(planner);
+    NoneTinyLeafRel leaf = new NoneTinyLeafRel(cluster, "noneLeafRel");
+    planner.setRoot(leaf);
+    RelOptCost cost = planner.getCost(leaf, cluster.getMetadataQuery());
+
+    assertTrue(cost.isInfinite());
+
+    planner.setNoneConventionHasInfiniteCost(false);
+    cost = planner.getCost(leaf, cluster.getMetadataQuery());
+    assertTrue(!cost.isInfinite());
   }
 
   //~ Inner Classes ----------------------------------------------------------
@@ -325,7 +342,7 @@ public class VolcanoPlannerTraitTest {
       RelTrait fromTrait = rel.getTraitSet().getTrait(this);
 
       if (conversionMap.containsKey(fromTrait)) {
-        final RelMetadataQuery mq = RelMetadataQuery.instance();
+        final RelMetadataQuery mq = rel.getCluster().getMetadataQuery();
         for (Pair<RelTrait, ConverterRule> traitAndRule
             : conversionMap.get(fromTrait)) {
           RelTrait trait = traitAndRule.left;
@@ -504,7 +521,7 @@ public class VolcanoPlannerTraitTest {
   /** Relational expression with one input, that implements the {@link FooRel}
    * mix-in interface. */
   private static class IterSingleRel extends TestSingleRel implements FooRel {
-    public IterSingleRel(RelOptCluster cluster, RelNode child) {
+    IterSingleRel(RelOptCluster cluster, RelNode child) {
       super(
           cluster,
           cluster.traitSetOf(EnumerableConvention.INSTANCE),
@@ -548,6 +565,27 @@ public class VolcanoPlannerTraitTest {
           new PhysLeafRel(
               leafRel.getCluster(),
               leafRel.getLabel()));
+    }
+  }
+
+  /** Relational expression with zero input, of NONE convention, and tiny cost. */
+  private static class NoneTinyLeafRel extends TestLeafRel {
+    protected NoneTinyLeafRel(
+        RelOptCluster cluster,
+        String label) {
+      super(
+          cluster,
+          cluster.traitSetOf(Convention.NONE),
+          label);
+    }
+
+    @Override public RelNode copy(RelTraitSet traitSet, List<RelNode> inputs) {
+      return new NoneTinyLeafRel(getCluster(), getLabel());
+    }
+
+    public RelOptCost computeSelfCost(RelOptPlanner planner,
+                                      RelMetadataQuery mq) {
+      return planner.getCostFactory().makeTinyCost();
     }
   }
 
@@ -676,7 +714,7 @@ public class VolcanoPlannerTraitTest {
 
   /** Planner rule that converts from PHYS to ENUMERABLE convention. */
   private static class PhysToIteratorConverterRule extends ConverterRule {
-    public PhysToIteratorConverterRule() {
+    PhysToIteratorConverterRule() {
       super(
           RelNode.class,
           PHYS_CALLING_CONVENTION,
@@ -693,7 +731,7 @@ public class VolcanoPlannerTraitTest {
 
   /** Planner rule that converts PHYS to ENUMERABLE convention. */
   private static class PhysToIteratorConverter extends ConverterImpl {
-    public PhysToIteratorConverter(
+    PhysToIteratorConverter(
         RelOptCluster cluster,
         RelNode child) {
       super(
@@ -713,7 +751,7 @@ public class VolcanoPlannerTraitTest {
   /** Planner rule that converts an {@link IterSingleRel} on a
    * {@link PhysToIteratorConverter} into a {@link IterMergedRel}. */
   private static class IterSinglePhysMergeRule extends RelOptRule {
-    public IterSinglePhysMergeRule() {
+    IterSinglePhysMergeRule() {
       super(
           operand(IterSingleRel.class,
               operand(PhysToIteratorConverter.class, any())));
@@ -729,7 +767,7 @@ public class VolcanoPlannerTraitTest {
   /** Relational expression with no inputs, that implements the {@link FooRel}
    * mix-in interface. */
   private static class IterMergedRel extends TestLeafRel implements FooRel {
-    public IterMergedRel(RelOptCluster cluster, String label) {
+    IterMergedRel(RelOptCluster cluster, String label) {
       super(
           cluster,
           cluster.traitSetOf(EnumerableConvention.INSTANCE),

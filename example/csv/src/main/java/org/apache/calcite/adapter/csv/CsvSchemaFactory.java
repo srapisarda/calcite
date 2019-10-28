@@ -22,18 +22,25 @@ import org.apache.calcite.schema.SchemaFactory;
 import org.apache.calcite.schema.SchemaPlus;
 
 import java.io.File;
+import java.util.Locale;
 import java.util.Map;
 
 /**
  * Factory that creates a {@link CsvSchema}.
  *
  * <p>Allows a custom schema to be included in a <code><i>model</i>.json</code>
- * file.</p>
+ * file.
  */
 @SuppressWarnings("UnusedDeclaration")
 public class CsvSchemaFactory implements SchemaFactory {
-  // public constructor, per factory contract
-  public CsvSchemaFactory() {
+  /** Name of the column that is implicitly created in a CSV stream table
+   * to hold the data arrival time. */
+  static final String ROWTIME_COLUMN_NAME = "ROWTIME";
+
+  /** Public singleton, per factory contract. */
+  public static final CsvSchemaFactory INSTANCE = new CsvSchemaFactory();
+
+  private CsvSchemaFactory() {
   }
 
   public Schema create(SchemaPlus parentSchema, String name,
@@ -50,7 +57,7 @@ public class CsvSchemaFactory implements SchemaFactory {
     if (flavorName == null) {
       flavor = CsvTable.Flavor.SCANNABLE;
     } else {
-      flavor = CsvTable.Flavor.valueOf(flavorName.toUpperCase());
+      flavor = CsvTable.Flavor.valueOf(flavorName.toUpperCase(Locale.ROOT));
     }
     // todo: get class for generating tables statistics.
 

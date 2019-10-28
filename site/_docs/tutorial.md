@@ -30,7 +30,7 @@ provides a full SQL interface.
 Calcite-example-CSV is a fully functional adapter for
 Calcite that reads
 text files in
-<a href="http://en.wikipedia.org/wiki/Comma-separated_values">CSV
+<a href="https://en.wikipedia.org/wiki/Comma-separated_values">CSV
 (comma-separated values)</a> format. It is remarkable that a couple of
 hundred lines of Java code are sufficient to provide full SQL query
 capability.
@@ -53,12 +53,12 @@ several important concepts:
 
 ## Download and build
 
-You need Java (1.7 or higher; 1.8 preferred), git and maven (3.2.1 or later).
+You need Java (version 8, 9 or 10) and git.
 
 {% highlight bash %}
 $ git clone https://github.com/apache/calcite.git
 $ cd calcite
-$ mvn install -DskipTests -Dcheckstyle.skip=true
+$ ./mvnw install -DskipTests -Dcheckstyle.skip=true
 $ cd example/csv
 {% endhighlight %}
 
@@ -91,7 +91,7 @@ sqlline> !tables
 {% endhighlight %}
 
 (JDBC experts, note: sqlline's <code>!tables</code> command is just executing
-<a href="http://docs.oracle.com/javase/7/docs/api/java/sql/DatabaseMetaData.html#getTables(java.lang.String, java.lang.String, java.lang.String, java.lang.String[])"><code>DatabaseMetaData.getTables()</code></a>
+<a href="https://docs.oracle.com/javase/7/docs/api/java/sql/DatabaseMetaData.html#getTables(java.lang.String, java.lang.String, java.lang.String, java.lang.String[])"><code>DatabaseMetaData.getTables()</code></a>
 behind the scenes.
 It has other commands to query JDBC metadata, such as <code>!columns</code> and <code>!describe</code>.)
 
@@ -464,7 +464,8 @@ with the adapter and find a more efficient way of accessing the data.
 This negotiation is a simple form of query optimization. Calcite supports query
 optimization by adding <i>planner rules</i>. Planner rules operate by
 looking for patterns in the query parse tree (for instance a project on top
-of a certain kind of table), and
+of a certain kind of table), and replacing the matched nodes in the tree by
+a new set of nodes which implement the optimization.
 
 Planner rules are also extensible, like schemas and tables. So, if you have a
 data store that you want to access via SQL, you first define a custom table or
@@ -632,7 +633,7 @@ For example, this schema reads from a MySQL "foodmart" database:
 (The FoodMart database will be familiar to those of you who have used
 the Mondrian OLAP engine, because it is Mondrian's main test data
 set. To load the data set, follow <a
-href="http://mondrian.pentaho.com/documentation/installation.php#2_Set_up_test_data">Mondrian's
+href="https://mondrian.pentaho.com/documentation/installation.php#2_Set_up_test_data">Mondrian's
 installation instructions</a>.)
 
 <b>Current limitations</b>: The JDBC adapter currently only pushes
@@ -718,43 +719,6 @@ initial implementations.
 
 ## Further topics
 
-### Defining a custom schema
+There are many other ways to extend Calcite not yet described in this tutorial.
+The [adapter specification](adapter.html) describes the APIs involved.
 
-(To be written.)
-
-### Modifying data
-
-How to enable DML operations (INSERT, UPDATE and DELETE) on your schema.
-
-(To be written.)
-
-### Calling conventions
-
-(To be written.)
-
-### Statistics and cost
-
-(To be written.)
-
-### Defining and using user-defined functions
-
-(To be written.)
-
-###  Defining tables in a schema
-
-(To be written.)
-
-### Defining custom tables
-
-(To be written.)
-
-### Built-in SQL implementation
-
-How does Calcite implement SQL, if an adapter does not implement all of the core
-relational operators?
-
-(To be written.)
-
-### Table functions
-
-(To be written.)

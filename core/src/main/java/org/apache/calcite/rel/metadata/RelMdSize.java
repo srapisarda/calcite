@@ -26,7 +26,6 @@ import org.apache.calcite.rel.core.Intersect;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.Minus;
 import org.apache.calcite.rel.core.Project;
-import org.apache.calcite.rel.core.SemiJoin;
 import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.core.Union;
@@ -43,8 +42,8 @@ import org.apache.calcite.util.NlsString;
 import org.apache.calcite.util.Pair;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -88,7 +87,7 @@ public class RelMdSize implements MetadataHandler<BuiltInMetadata.Size> {
     if (averageColumnSizes == null) {
       return null;
     }
-    Double d = 0d;
+    double d = 0d;
     final List<RelDataTypeField> fields = rel.getRowType().getFieldList();
     for (Pair<Double, RelDataTypeField> p
         : Pair.zip(averageColumnSizes, fields)) {
@@ -145,7 +144,8 @@ public class RelMdSize implements MetadataHandler<BuiltInMetadata.Size> {
       } else {
         d = 0;
         for (ImmutableList<RexLiteral> literals : rel.getTuples()) {
-          d += typeValueSize(field.getType(), literals.get(i).getValue());
+          d += typeValueSize(field.getType(),
+              literals.get(i).getValueAs(Comparable.class));
         }
         d /= rel.getTuples().size();
       }
@@ -176,21 +176,17 @@ public class RelMdSize implements MetadataHandler<BuiltInMetadata.Size> {
     return list.build();
   }
 
-  public List<Double> averageColumnSizes(SemiJoin rel, RelMetadataQuery mq) {
-    return averageJoinColumnSizes(rel, mq, true);
-  }
-
   public List<Double> averageColumnSizes(Join rel, RelMetadataQuery mq) {
-    return averageJoinColumnSizes(rel, mq, false);
+    return averageJoinColumnSizes(rel, mq);
   }
 
-  private List<Double> averageJoinColumnSizes(Join rel, RelMetadataQuery mq,
-      boolean semijoin) {
+  private List<Double> averageJoinColumnSizes(Join rel, RelMetadataQuery mq) {
+    boolean semiOrAntijoin = !rel.getJoinType().projectsRight();
     final RelNode left = rel.getLeft();
     final RelNode right = rel.getRight();
     final List<Double> lefts = mq.getAverageColumnSizes(left);
     final List<Double> rights =
-        semijoin ? null : mq.getAverageColumnSizes(right);
+        semiOrAntijoin ? null : mq.getAverageColumnSizes(right);
     if (lefts == null && rights == null) {
       return null;
     }
@@ -218,7 +214,7 @@ public class RelMdSize implements MetadataHandler<BuiltInMetadata.Size> {
 
   public List<Double> averageColumnSizes(Union rel, RelMetadataQuery mq) {
     final int fieldCount = rel.getRowType().getFieldCount();
-    List<List<Double>> inputColumnSizeList = Lists.newArrayList();
+    List<List<Double>> inputColumnSizeList = new ArrayList<>();
     for (RelNode input : rel.getInputs()) {
       final List<Double> inputSizes = mq.getAverageColumnSizes(input);
       if (inputSizes != null) {
@@ -280,13 +276,26 @@ public class RelMdSize implements MetadataHandler<BuiltInMetadata.Size> {
     case DECIMAL:
     case DATE:
     case TIME:
+    case TIME_WITH_LOCAL_TIME_ZONE:
+    case INTERVAL_YEAR:
+    case INTERVAL_YEAR_MONTH:
+    case INTERVAL_MONTH:
       return 4d;
     case BIGINT:
     case DOUBLE:
     case FLOAT: // sic
     case TIMESTAMP:
-    case INTERVAL_DAY_TIME:
-    case INTERVAL_YEAR_MONTH:
+    case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+    case INTERVAL_DAY:
+    case INTERVAL_DAY_HOUR:
+    case INTERVAL_DAY_MINUTE:
+    case INTERVAL_DAY_SECOND:
+    case INTERVAL_HOUR:
+    case INTERVAL_HOUR_MINUTE:
+    case INTERVAL_HOUR_SECOND:
+    case INTERVAL_MINUTE:
+    case INTERVAL_MINUTE_SECOND:
+    case INTERVAL_SECOND:
       return 8d;
     case BINARY:
       return (double) type.getPrecision();
@@ -298,7 +307,7 @@ public class RelMdSize implements MetadataHandler<BuiltInMetadata.Size> {
       // Even in large (say VARCHAR(2000)) columns most strings are small
       return Math.min((double) type.getPrecision() * BYTES_PER_CHARACTER, 100d);
     case ROW:
-      Double average = 0.0;
+      double average = 0.0;
       for (RelDataTypeField field : type.getFieldList()) {
         average += averageTypeValueSize(field.getType());
       }
@@ -327,12 +336,25 @@ public class RelMdSize implements MetadataHandler<BuiltInMetadata.Size> {
     case REAL:
     case DATE:
     case TIME:
+    case TIME_WITH_LOCAL_TIME_ZONE:
+    case INTERVAL_YEAR:
+    case INTERVAL_YEAR_MONTH:
+    case INTERVAL_MONTH:
       return 4d;
     case BIGINT:
     case DOUBLE:
     case TIMESTAMP:
-    case INTERVAL_DAY_TIME:
-    case INTERVAL_YEAR_MONTH:
+    case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+    case INTERVAL_DAY:
+    case INTERVAL_DAY_HOUR:
+    case INTERVAL_DAY_MINUTE:
+    case INTERVAL_DAY_SECOND:
+    case INTERVAL_HOUR:
+    case INTERVAL_HOUR_MINUTE:
+    case INTERVAL_HOUR_SECOND:
+    case INTERVAL_MINUTE:
+    case INTERVAL_MINUTE_SECOND:
+    case INTERVAL_SECOND:
       return 8d;
     case BINARY:
     case VARBINARY:
@@ -350,7 +372,8 @@ public class RelMdSize implements MetadataHandler<BuiltInMetadata.Size> {
     case INPUT_REF:
       return inputColumnSizes.get(((RexInputRef) node).getIndex());
     case LITERAL:
-      return typeValueSize(node.getType(), ((RexLiteral) node).getValue());
+      return typeValueSize(node.getType(),
+          ((RexLiteral) node).getValueAs(Comparable.class));
     default:
       if (node instanceof RexCall) {
         RexCall call = (RexCall) node;

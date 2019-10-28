@@ -27,7 +27,6 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.Iterator;
 
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.equalTo;
@@ -47,14 +46,12 @@ public class ExceptionMessageTest {
   @SuppressWarnings("UnusedDeclaration")
   public static class TestSchema {
     public Entry[] entries = {
-      new Entry(1, "name1"),
-      new Entry(2, "name2")
+        new Entry(1, "name1"),
+        new Entry(2, "name2")
     };
 
-    public Iterable<Entry> badEntries = new Iterable<Entry>() {
-      public Iterator<Entry> iterator() {
-        throw new IllegalStateException("Can't iterate over badEntries");
-      }
+    public Iterable<Entry> badEntries = () -> {
+      throw new IllegalStateException("Can't iterate over badEntries");
     };
   }
 
@@ -127,8 +124,8 @@ public class ExceptionMessageTest {
 
   @Test public void testSemanticError() {
     try {
+      // implicit type coercion.
       runQuery("select \"name\" - \"id\" from \"entries\"");
-      fail("Query with semantic error should fail");
     } catch (SQLException e) {
       assertThat(e.getMessage(),
           containsString("Cannot apply '-' to arguments"));
@@ -141,7 +138,7 @@ public class ExceptionMessageTest {
       fail("Query should fail");
     } catch (SQLException e) {
       assertThat(e.getMessage(),
-          containsString("Table 'nonexistentTable' not found"));
+          containsString("Object 'nonexistentTable' not found"));
     }
   }
 }

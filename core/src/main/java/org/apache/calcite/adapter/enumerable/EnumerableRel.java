@@ -17,15 +17,10 @@
 package org.apache.calcite.adapter.enumerable;
 
 import org.apache.calcite.linq4j.tree.BlockStatement;
-import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.RelFactories;
-import org.apache.calcite.rel.type.RelDataType;
-import org.apache.calcite.rex.RexNode;
-import org.apache.calcite.rex.RexUtil;
-import org.apache.calcite.sql.validate.SqlValidatorUtil;
 
-import java.util.List;
+import com.google.common.base.Preconditions;
 
 /**
  * A relational expression of one of the
@@ -35,25 +30,13 @@ import java.util.List;
 public interface EnumerableRel
     extends RelNode {
   RelFactories.FilterFactory FILTER_FACTORY =
-      new RelFactories.FilterFactory() {
-        public RelNode createFilter(RelNode child, RexNode condition) {
-          return EnumerableFilter.create(child, condition);
-        }
+      (input, condition, variablesSet) -> {
+        Preconditions.checkArgument(variablesSet.isEmpty(),
+            "EnumerableFilter does not allow variables");
+        return EnumerableFilter.create(input, condition);
       };
 
-  RelFactories.ProjectFactory PROJECT_FACTORY =
-      new RelFactories.ProjectFactory() {
-        public RelNode createProject(RelNode child,
-            List<? extends RexNode> projects, List<String> fieldNames) {
-          final RelOptCluster cluster = child.getCluster();
-          final RelDataType rowType =
-              RexUtil.createStructType(cluster.getTypeFactory(), projects,
-                  fieldNames == null ? null
-                      : SqlValidatorUtil.uniquify(fieldNames,
-                          SqlValidatorUtil.F_SUGGESTER));
-          return EnumerableProject.create(child, projects, rowType);
-        }
-      };
+  RelFactories.ProjectFactory PROJECT_FACTORY = EnumerableProject::create;
 
   //~ Methods ----------------------------------------------------------------
 

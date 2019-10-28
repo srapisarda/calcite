@@ -16,9 +16,6 @@
  */
 package org.apache.calcite.linq4j.tree;
 
-import com.google.common.base.Function;
-import com.google.common.collect.Lists;
-
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Type;
@@ -26,7 +23,10 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Represents an expression that has a constant value.
@@ -58,7 +58,11 @@ public class ConstantExpression extends Expression {
     return value;
   }
 
-  @Override public Expression accept(Visitor visitor) {
+  @Override public Expression accept(Shuttle shuttle) {
+    return shuttle.visit(this);
+  }
+
+  public <R> R accept(Visitor<R> visitor) {
     return visitor.visit(this);
   }
 
@@ -129,7 +133,7 @@ public class ConstantExpression extends Expression {
     }
     final Primitive primitive2 = Primitive.ofBox(type);
     if (primitive2 != null) {
-      writer.append(primitive2.boxClass.getSimpleName() + ".valueOf(");
+      writer.append(primitive2.boxName + ".valueOf(");
       write(writer, value, primitive2.primitiveClass);
       return writer.append(")");
     }
@@ -143,20 +147,20 @@ public class ConstantExpression extends Expression {
       try {
         final int scale = bigDecimal.scale();
         final long exact = bigDecimal.scaleByPowerOfTen(scale).longValueExact();
-        writer.append("new java.math.BigDecimal(").append(exact).append("L");
+        writer.append("java.math.BigDecimal.valueOf(").append(exact).append("L");
         if (scale != 0) {
           writer.append(", ").append(scale);
         }
         return writer.append(")");
       } catch (ArithmeticException e) {
-        return writer.append("new java.math.BigDecimal(\"").append(
-            bigDecimal.toString()).append("\")");
+        return writer.append("new java.math.BigDecimal(\"")
+            .append(bigDecimal.toString()).append("\")");
       }
     }
     if (value instanceof BigInteger) {
       BigInteger bigInteger = (BigInteger) value;
-      return writer.append("new java.math.BigInteger(\"").append(
-          bigInteger.toString()).append("\")");
+      return writer.append("new java.math.BigInteger(\"")
+          .append(bigInteger.toString()).append("\")");
     }
     if (value instanceof Class) {
       Class clazz = (Class) value;
@@ -171,20 +175,34 @@ public class ConstantExpression extends Expression {
       list(writer, Primitive.asList(value), "[] {\n", ",\n", "}");
       return writer;
     }
+    if (value instanceof List) {
+      if (((List) value).isEmpty()) {
+        writer.append("java.util.Collections.EMPTY_LIST");
+        return writer;
+      }
+      list(writer, (List) value, "java.util.Arrays.asList(", ",\n", ")");
+      return writer;
+    }
+    if (value instanceof Map) {
+      return writeMap(writer, (Map) value);
+    }
+    if (value instanceof Set) {
+      return writeSet(writer, (Set) value);
+    }
+
     Constructor constructor = matchingConstructor(value);
     if (constructor != null) {
       writer.append("new ").append(value.getClass());
       list(writer,
-          Lists.transform(Arrays.asList(value.getClass().getFields()),
-              new Function<Field, Object>() {
-                public Object apply(Field field) {
-                  try {
-                    return field.get(value);
-                  } catch (IllegalAccessException e) {
-                    throw new RuntimeException(e);
-                  }
+          Arrays.stream(value.getClass().getFields())
+              .map(field -> {
+                try {
+                  return field.get(value);
+                } catch (IllegalAccessException e) {
+                  throw new RuntimeException(e);
                 }
-              }),
+              })
+              .collect(Collectors.toList()),
           "(\n", ",\n", ")");
       return writer;
     }
@@ -202,6 +220,59 @@ public class ConstantExpression extends Expression {
       write(writer, value, null);
     }
     writer.end(end);
+  }
+
+  private static ExpressionWriter writeMap(ExpressionWriter writer, Map map) {
+    writer.append("com.google.common.collect.ImmutableMap.");
+    if (map.isEmpty()) {
+      return writer.append("of()");
+    }
+    if (map.size() < 5) {
+      return map(writer, map, "of(", ",\n", ")");
+    }
+    return map(writer, map, "builder().put(", ")\n.put(", ").build()");
+  }
+
+  private static ExpressionWriter map(ExpressionWriter writer, Map map,
+      String begin, String entrySep, String end) {
+    writer.append(begin);
+    boolean comma = false;
+    for (Object o : map.entrySet()) {
+      Map.Entry entry = (Map.Entry) o;
+      if (comma) {
+        writer.append(entrySep).indent();
+      }
+      write(writer, entry.getKey(), null);
+      writer.append(", ");
+      write(writer, entry.getValue(), null);
+      comma = true;
+    }
+    return writer.append(end);
+  }
+
+  private static ExpressionWriter writeSet(ExpressionWriter writer, Set set) {
+    writer.append("com.google.common.collect.ImmutableSet.");
+    if (set.isEmpty()) {
+      return writer.append("of()");
+    }
+    if (set.size() < 5) {
+      return set(writer, set, "of(", ",", ")");
+    }
+    return set(writer, set, "builder().add(", ")\n.add(", ").build()");
+  }
+
+  private static ExpressionWriter set(ExpressionWriter writer, Set set,
+                                      String begin, String entrySep, String end) {
+    writer.append(begin);
+    boolean comma = false;
+    for (Object o : set.toArray()) {
+      if (comma) {
+        writer.append(entrySep).indent();
+      }
+      write(writer, o, null);
+      comma = true;
+    }
+    return writer.append(end);
   }
 
   private static Constructor matchingConstructor(Object value) {

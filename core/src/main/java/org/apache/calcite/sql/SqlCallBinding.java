@@ -29,9 +29,7 @@ import org.apache.calcite.sql.validate.SqlValidatorNamespace;
 import org.apache.calcite.sql.validate.SqlValidatorScope;
 import org.apache.calcite.sql.validate.SqlValidatorUtil;
 import org.apache.calcite.util.NlsString;
-import org.apache.calcite.util.Util;
 
-import com.google.common.base.Function;
 import com.google.common.collect.Lists;
 
 import java.math.BigDecimal;
@@ -153,22 +151,19 @@ public class SqlCallBinding extends SqlOperatorBinding {
 
   /** Returns the operands to a call permuted into the same order as the
    * formal parameters of the function. */
-  public List<SqlNode> permutedOperands(final SqlCall call) {
+  private List<SqlNode> permutedOperands(final SqlCall call) {
     final SqlFunction operator = (SqlFunction) call.getOperator();
-    return Lists.transform(operator.getParamNames(),
-        new Function<String, SqlNode>() {
-          public SqlNode apply(String paramName) {
-            for (SqlNode operand2 : call.getOperandList()) {
-              final SqlCall call2 = (SqlCall) operand2;
-              assert operand2.getKind() == SqlKind.ARGUMENT_ASSIGNMENT;
-              final SqlIdentifier id = call2.operand(1);
-              if (id.getSimple().equals(paramName)) {
-                return call2.operand(0);
-              }
-            }
-            return DEFAULT_CALL;
-          }
-        });
+    return Lists.transform(operator.getParamNames(), paramName -> {
+      for (SqlNode operand2 : call.getOperandList()) {
+        final SqlCall call2 = (SqlCall) operand2;
+        assert operand2.getKind() == SqlKind.ARGUMENT_ASSIGNMENT;
+        final SqlIdentifier id = call2.operand(1);
+        if (id.getSimple().equals(paramName)) {
+          return call2.operand(0);
+        }
+      }
+      return DEFAULT_CALL;
+    });
   }
 
   /**
@@ -193,12 +188,14 @@ public class SqlCallBinding extends SqlOperatorBinding {
     return call.getOperandList().get(ordinal).getMonotonicity(scope);
   }
 
+  @SuppressWarnings("deprecation")
   @Override public String getStringLiteralOperand(int ordinal) {
     SqlNode node = call.operand(ordinal);
     final Object o = SqlLiteral.value(node);
     return o instanceof NlsString ? ((NlsString) o).getValue() : null;
   }
 
+  @SuppressWarnings("deprecation")
   @Override public int getIntLiteralOperand(int ordinal) {
     SqlNode node = call.operand(ordinal);
     final Object o = SqlLiteral.value(node);
@@ -211,12 +208,16 @@ public class SqlCallBinding extends SqlOperatorBinding {
             RESOURCE.numberLiteralOutOfRange(bd.toString()));
       }
     }
-    throw Util.newInternal("should never come here");
+    throw new AssertionError();
   }
 
-  @Override public Comparable getOperandLiteralValue(int ordinal) {
-    SqlNode node = call.operand(ordinal);
-    return SqlLiteral.value(node);
+  @Override public <T> T getOperandLiteralValue(int ordinal, Class<T> clazz) {
+    try {
+      final SqlNode node = call.operand(ordinal);
+      return SqlLiteral.unchain(node).getValueAs(clazz);
+    } catch (IllegalArgumentException e) {
+      return null;
+    }
   }
 
   @Override public boolean isOperandNull(int ordinal, boolean allowCast) {

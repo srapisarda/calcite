@@ -16,13 +16,10 @@
  */
 package org.apache.calcite.rel.rules;
 
-import org.apache.calcite.plan.RelOptRule;
-import org.apache.calcite.plan.RelOptRuleCall;
-import org.apache.calcite.plan.RelOptUtil;
-import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Join;
-import org.apache.calcite.rel.core.JoinRelType;
+import org.apache.calcite.rel.core.RelFactories;
 import org.apache.calcite.rel.logical.LogicalJoin;
+import org.apache.calcite.tools.RelBuilderFactory;
 
 /**
  * Rule to convert an
@@ -38,59 +35,26 @@ import org.apache.calcite.rel.logical.LogicalJoin;
  * {@link org.apache.calcite.rel.core.Join}, not just
  * {@link org.apache.calcite.rel.logical.LogicalJoin}.</p>
  */
-public final class JoinExtractFilterRule extends RelOptRule {
+public final class JoinExtractFilterRule extends AbstractJoinExtractFilterRule {
   //~ Static fields/initializers ---------------------------------------------
 
   /** The singleton. */
   public static final JoinExtractFilterRule INSTANCE =
-      new JoinExtractFilterRule(LogicalJoin.class);
+      new JoinExtractFilterRule(LogicalJoin.class,
+          RelFactories.LOGICAL_BUILDER);
 
   //~ Constructors -----------------------------------------------------------
 
   /**
-   * Creates an JoinExtractFilterRule.
+   * Creates a JoinExtractFilterRule.
    */
-  public JoinExtractFilterRule(Class<? extends Join> clazz) {
-    super(operand(clazz, any()));
+  public JoinExtractFilterRule(Class<? extends Join> clazz,
+      RelBuilderFactory relBuilderFactory) {
+    super(operand(clazz, any()), relBuilderFactory, null);
   }
 
   //~ Methods ----------------------------------------------------------------
 
-  public void onMatch(RelOptRuleCall call) {
-    final Join join = call.rel(0);
-
-    if (join.getJoinType() != JoinRelType.INNER) {
-      return;
-    }
-
-    if (join.getCondition().isAlwaysTrue()) {
-      return;
-    }
-
-    if (!join.getSystemFieldList().isEmpty()) {
-      // FIXME Enable this rule for joins with system fields
-      return;
-    }
-
-    // NOTE jvs 14-Mar-2006:  See JoinCommuteRule for why we
-    // preserve attribute semiJoinDone here.
-
-    RelNode cartesianJoinRel =
-        join.copy(
-            join.getTraitSet(),
-            join.getCluster().getRexBuilder().makeLiteral(true),
-            join.getLeft(),
-            join.getRight(),
-            join.getJoinType(),
-            join.isSemiJoinDone());
-
-    RelNode filterRel =
-        RelOptUtil.createFilter(
-            cartesianJoinRel,
-            join.getCondition());
-
-    call.transformTo(filterRel);
-  }
 }
 
 // End JoinExtractFilterRule.java

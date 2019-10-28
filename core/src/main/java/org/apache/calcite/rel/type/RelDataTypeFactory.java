@@ -16,8 +16,10 @@
  */
 package org.apache.calcite.rel.type;
 
+import org.apache.calcite.avatica.util.TimeUnit;
 import org.apache.calcite.sql.SqlCollation;
 import org.apache.calcite.sql.SqlIntervalQualifier;
+import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql.validate.SqlValidatorUtil;
 
@@ -25,6 +27,7 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * RelDataTypeFactory is a factory for datatype descriptors. It defines methods
@@ -50,7 +53,7 @@ public interface RelDataTypeFactory {
   RelDataTypeSystem getTypeSystem();
 
   /**
-   * Creates a type which corresponds to a Java class.
+   * Creates a type that corresponds to a Java class.
    *
    * @param clazz the Java class used to define the type
    * @return canonical Java type descriptor
@@ -66,28 +69,37 @@ public interface RelDataTypeFactory {
   RelDataType createJoinType(RelDataType... types);
 
   /**
-   * Creates a type which represents a structured collection of fields, given
+   * Creates a type that represents a structured collection of fields, given
    * lists of the names and types of the fields.
    *
+   * @param  kind         Name resolution policy
    * @param typeList      types of the fields
    * @param fieldNameList names of the fields
    * @return canonical struct type descriptor
    */
+  RelDataType createStructType(StructKind kind,
+      List<RelDataType> typeList,
+      List<String> fieldNameList);
+
+  /** Creates a type that represents a structured collection of fields.
+   * Shorthand for <code>createStructType(StructKind.FULLY_QUALIFIED, typeList,
+   * fieldNameList)</code>. */
   RelDataType createStructType(
       List<RelDataType> typeList,
       List<String> fieldNameList);
 
   /**
-   * Creates a type which represents a structured collection of fields,
+   * Creates a type that represents a structured collection of fields,
    * obtaining the field information via a callback.
    *
    * @param fieldInfo callback for field information
    * @return canonical struct type descriptor
    */
+  @Deprecated // to be removed before 2.0
   RelDataType createStructType(FieldInfo fieldInfo);
 
   /**
-   * Creates a type which represents a structured collection of fieldList,
+   * Creates a type that represents a structured collection of fieldList,
    * obtaining the field information from a list of (name, type) pairs.
    *
    * @param fieldList List of (name, type) pairs
@@ -140,7 +152,7 @@ public interface RelDataTypeFactory {
   RelDataType copyType(RelDataType type);
 
   /**
-   * Creates a type which is the same as another type but with possibly
+   * Creates a type that is the same as another type but with possibly
    * different nullability. The output type may be identical to the input
    * type. For type systems without a concept of nullability, the return value
    * is always the same as the input.
@@ -156,7 +168,7 @@ public interface RelDataTypeFactory {
       boolean nullable);
 
   /**
-   * Creates a Type which is the same as another type but with possibly
+   * Creates a type that is the same as another type but with possibly
    * different charset or collation. For types without a concept of charset or
    * collation this function must throw an error.
    *
@@ -179,7 +191,7 @@ public interface RelDataTypeFactory {
   /**
    * Returns the most general of a set of types (that is, one type to which
    * they can all be cast), or null if conversion is not possible. The result
-   * may be a new type which is less restrictive than any of the input types,
+   * may be a new type that is less restrictive than any of the input types,
    * e.g. <code>leastRestrictive(INT, NUMERIC(3, 2))</code> could be
    * {@code NUMERIC(12, 2)}.
    *
@@ -196,6 +208,14 @@ public interface RelDataTypeFactory {
    * @return canonical type descriptor
    */
   RelDataType createSqlType(SqlTypeName typeName);
+
+  /**
+   * Creates a SQL type that represents the "unknown" type.
+   * It is only equal to itself, and is distinct from the NULL type.
+
+   * @return unknown type
+   */
+  RelDataType createUnknownType();
 
   /**
    * Creates a SQL type with length (precision) but no scale.
@@ -250,7 +270,10 @@ public interface RelDataTypeFactory {
    * @param type2 type of the second operand
    * @return the result type for a decimal multiplication, or null if decimal
    * multiplication should not be applied to the operands.
+   * @deprecated Use
+   * {@link RelDataTypeSystem#deriveDecimalMultiplyType(RelDataTypeFactory, RelDataType, RelDataType)}
    */
+  @Deprecated // to be removed before 2.0
   RelDataType createDecimalProduct(
       RelDataType type1,
       RelDataType type2);
@@ -260,7 +283,11 @@ public interface RelDataTypeFactory {
    * arguments to double values.
    *
    * <p>Pre-condition: <code>createDecimalProduct(type1, type2) != null</code>
+   *
+   * @deprecated Use
+   * {@link RelDataTypeSystem#shouldUseDoubleMultiplication(RelDataTypeFactory, RelDataType, RelDataType)}
    */
+  @Deprecated // to be removed before 2.0
   boolean useDoubleMultiplication(
       RelDataType type1,
       RelDataType type2);
@@ -274,23 +301,41 @@ public interface RelDataTypeFactory {
    * @param type2 type of the second operand
    * @return the result type for a decimal division, or null if decimal
    * division should not be applied to the operands.
+   *
+   * @deprecated Use
+   * {@link RelDataTypeSystem#deriveDecimalDivideType(RelDataTypeFactory, RelDataType, RelDataType)}
    */
+  @Deprecated // to be removed before 2.0
   RelDataType createDecimalQuotient(
       RelDataType type1,
       RelDataType type2);
 
   /**
+   * Create a decimal type equivalent to the numeric {@code type},
+   * this is related to specific system implementation,
+   * you can override this logic if it is required.
+   *
+   * @param type the numeric type to create decimal type with
+   * @return decimal equivalence of the numeric type.
+   */
+  RelDataType decimalOf(RelDataType type);
+
+  /**
    * Creates a
    * {@link org.apache.calcite.rel.type.RelDataTypeFactory.FieldInfoBuilder}.
+   * But since {@code FieldInfoBuilder} is deprecated, we recommend that you use
+   * its base class {@link Builder}, which is not deprecated.
    */
+  @SuppressWarnings("deprecation")
   FieldInfoBuilder builder();
 
   //~ Inner Interfaces -------------------------------------------------------
 
   /**
-   * Callback which provides enough information to create fields.
+   * Callback that provides enough information to create fields.
    */
-  public interface FieldInfo {
+  @Deprecated // to be removed before 2.0
+  interface FieldInfo {
     /**
      * Returns the number of fields.
      *
@@ -319,28 +364,98 @@ public interface RelDataTypeFactory {
    * Implementation of {@link FieldInfo} that provides a fluid API to build
    * a list of fields.
    */
-  public static class FieldInfoBuilder implements FieldInfo {
-    private final List<String> names = new ArrayList<String>();
-    private final List<RelDataType> types = new ArrayList<RelDataType>();
+  @Deprecated
+  @SuppressWarnings("deprecation")
+  class FieldInfoBuilder extends Builder implements FieldInfo {
+    public FieldInfoBuilder(RelDataTypeFactory typeFactory) {
+      super(typeFactory);
+    }
 
+    @Override public FieldInfoBuilder add(String name, RelDataType type) {
+      return (FieldInfoBuilder) super.add(name, type);
+    }
+
+    @Override public FieldInfoBuilder add(String name, SqlTypeName typeName) {
+      return (FieldInfoBuilder) super.add(name, typeName);
+    }
+
+    @Override public FieldInfoBuilder add(String name, SqlTypeName typeName,
+        int precision) {
+      return (FieldInfoBuilder) super.add(name, typeName, precision);
+    }
+
+    @Override public FieldInfoBuilder add(String name, SqlTypeName typeName,
+        int precision, int scale) {
+      return (FieldInfoBuilder) super.add(name, typeName, precision, scale);
+    }
+
+    @Override public FieldInfoBuilder add(String name, TimeUnit startUnit,
+        int startPrecision, TimeUnit endUnit, int fractionalSecondPrecision) {
+      return (FieldInfoBuilder) super.add(name, startUnit, startPrecision,
+          endUnit, fractionalSecondPrecision);
+    }
+
+    @Override public FieldInfoBuilder nullable(boolean nullable) {
+      return (FieldInfoBuilder) super.nullable(nullable);
+    }
+
+    @Override public FieldInfoBuilder add(RelDataTypeField field) {
+      return (FieldInfoBuilder) super.add(field);
+    }
+
+    @Override public FieldInfoBuilder addAll(
+        Iterable<? extends Map.Entry<String, RelDataType>> fields) {
+      return (FieldInfoBuilder) super.addAll(fields);
+    }
+
+    @Override public FieldInfoBuilder kind(StructKind kind) {
+      return (FieldInfoBuilder) super.kind(kind);
+    }
+
+    @Override public FieldInfoBuilder uniquify() {
+      return (FieldInfoBuilder) super.uniquify();
+    }
+  }
+
+  /** Fluid API to build a list of fields. */
+  class Builder {
+    private final List<String> names = new ArrayList<>();
+    private final List<RelDataType> types = new ArrayList<>();
+    private StructKind kind = StructKind.FULLY_QUALIFIED;
     private final RelDataTypeFactory typeFactory;
 
     /**
-     * Creates a FieldInfoBuilder with the given type factory.
+     * Creates a Builder with the given type factory.
      */
-    public FieldInfoBuilder(RelDataTypeFactory typeFactory) {
-      this.typeFactory = typeFactory;
-      assert typeFactory != null;
+    public Builder(RelDataTypeFactory typeFactory) {
+      this.typeFactory = Objects.requireNonNull(typeFactory);
     }
 
+    /**
+     * Returns the number of fields.
+     *
+     * @return number of fields
+     */
     public int getFieldCount() {
       return names.size();
     }
 
+    /**
+     * Returns the name of a given field.
+     *
+     * @param index Ordinal of field
+     * @return Name of given field
+     */
     public String getFieldName(int index) {
       return names.get(index);
     }
 
+    /**
+     * Returns the type of a given field.
+     *
+     * @param index Ordinal of field
+     * @return Type of given field
+     */
     public RelDataType getFieldType(int index) {
       return types.get(index);
     }
@@ -348,7 +463,7 @@ public interface RelDataTypeFactory {
     /**
      * Adds a field with given name and type.
      */
-    public FieldInfoBuilder add(String name, RelDataType type) {
+    public Builder add(String name, RelDataType type) {
       names.add(name);
       types.add(type);
       return this;
@@ -358,7 +473,7 @@ public interface RelDataTypeFactory {
      * Adds a field with a type created using
      * {@link org.apache.calcite.rel.type.RelDataTypeFactory#createSqlType(org.apache.calcite.sql.type.SqlTypeName)}.
      */
-    public FieldInfoBuilder add(String name, SqlTypeName typeName) {
+    public Builder add(String name, SqlTypeName typeName) {
       add(name, typeFactory.createSqlType(typeName));
       return this;
     }
@@ -367,8 +482,7 @@ public interface RelDataTypeFactory {
      * Adds a field with a type created using
      * {@link org.apache.calcite.rel.type.RelDataTypeFactory#createSqlType(org.apache.calcite.sql.type.SqlTypeName, int)}.
      */
-    public FieldInfoBuilder add(
-        String name, SqlTypeName typeName, int precision) {
+    public Builder add(String name, SqlTypeName typeName, int precision) {
       add(name, typeFactory.createSqlType(typeName, precision));
       return this;
     }
@@ -377,9 +491,21 @@ public interface RelDataTypeFactory {
      * Adds a field with a type created using
      * {@link org.apache.calcite.rel.type.RelDataTypeFactory#createSqlType(org.apache.calcite.sql.type.SqlTypeName, int, int)}.
      */
-    public FieldInfoBuilder add(
-        String name, SqlTypeName typeName, int precision, int scale) {
+    public Builder add(String name, SqlTypeName typeName, int precision,
+        int scale) {
       add(name, typeFactory.createSqlType(typeName, precision, scale));
+      return this;
+    }
+
+    /**
+     * Adds a field with an interval type.
+     */
+    public Builder add(String name, TimeUnit startUnit, int startPrecision,
+        TimeUnit endUnit, int fractionalSecondPrecision) {
+      final SqlIntervalQualifier q =
+          new SqlIntervalQualifier(startUnit, startPrecision, endUnit,
+              fractionalSecondPrecision, SqlParserPos.ZERO);
+      add(name, typeFactory.createSqlIntervalType(q));
       return this;
     }
 
@@ -389,7 +515,7 @@ public interface RelDataTypeFactory {
      * @throws java.lang.IndexOutOfBoundsException if no fields have been
      *                                             added
      */
-    public FieldInfoBuilder nullable(boolean nullable) {
+    public Builder nullable(boolean nullable) {
       RelDataType lastType = types.get(types.size() - 1);
       if (lastType.isNullable() != nullable) {
         final RelDataType type =
@@ -402,7 +528,7 @@ public interface RelDataTypeFactory {
     /**
      * Adds a field. Field's ordinal is ignored.
      */
-    public FieldInfoBuilder add(RelDataTypeField field) {
+    public Builder add(RelDataTypeField field) {
       add(field.getName(), field.getType());
       return this;
     }
@@ -410,7 +536,7 @@ public interface RelDataTypeFactory {
     /**
      * Adds all fields in a collection.
      */
-    public FieldInfoBuilder addAll(
+    public Builder addAll(
         Iterable<? extends Map.Entry<String, RelDataType>> fields) {
       for (Map.Entry<String, RelDataType> field : fields) {
         add(field.getKey(), field.getValue());
@@ -418,11 +544,17 @@ public interface RelDataTypeFactory {
       return this;
     }
 
+    public Builder kind(StructKind kind) {
+      this.kind = kind;
+      return this;
+    }
+
     /**
      * Makes sure that field names are unique.
      */
-    public FieldInfoBuilder uniquify() {
-      final List<String> uniqueNames = SqlValidatorUtil.uniquify(names);
+    public Builder uniquify() {
+      final List<String> uniqueNames = SqlValidatorUtil.uniquify(names,
+          typeFactory.getTypeSystem().isSchemaCaseSensitive());
       if (uniqueNames != names) {
         names.clear();
         names.addAll(uniqueNames);
@@ -434,7 +566,21 @@ public interface RelDataTypeFactory {
      * Creates a struct type with the current contents of this builder.
      */
     public RelDataType build() {
-      return typeFactory.createStructType(types, names);
+      return typeFactory.createStructType(kind, types, names);
+    }
+
+    /** Creates a dynamic struct type with the current contents of this
+     * builder. */
+    public RelDataType buildDynamic() {
+      final RelDataType dynamicType = new DynamicRecordTypeImpl(typeFactory);
+      final RelDataType type = build();
+      dynamicType.getFieldList().addAll(type.getFieldList());
+      return dynamicType;
+    }
+
+    /** Returns whether a field exists with the given name. */
+    public boolean nameExists(String name) {
+      return names.contains(name);
     }
   }
 }

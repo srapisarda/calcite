@@ -22,8 +22,8 @@ import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollationTraitDef;
-import org.apache.calcite.rel.RelDistribution;
 import org.apache.calcite.rel.RelDistributionTraitDef;
+import org.apache.calcite.rel.RelInput;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Calc;
 import org.apache.calcite.rel.core.CorrelationId;
@@ -35,8 +35,6 @@ import org.apache.calcite.rel.rules.ProjectToCalcRule;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexProgram;
 import org.apache.calcite.util.Util;
-
-import com.google.common.base.Supplier;
 
 import java.util.List;
 import java.util.Set;
@@ -54,7 +52,7 @@ import java.util.Set;
  *
  * <ul>
  * <li>{@link FilterToCalcRule} creates this from a {@link LogicalFilter}
- * <li>{@link ProjectToCalcRule} creates this from a {@link LogicalFilter}
+ * <li>{@link ProjectToCalcRule} creates this from a {@link LogicalProject}
  * <li>{@link org.apache.calcite.rel.rules.FilterCalcMergeRule}
  *     merges this with a {@link LogicalFilter}
  * <li>{@link org.apache.calcite.rel.rules.ProjectCalcMergeRule}
@@ -77,6 +75,16 @@ public final class LogicalCalc extends Calc {
     super(cluster, traitSet, child, program);
   }
 
+  /**
+   * Creates a LogicalCalc by parsing serialized output.
+   */
+  public LogicalCalc(RelInput input) {
+    this(input.getCluster(),
+        input.getTraitSet(),
+        input.getInput(),
+        RexProgram.create(input));
+  }
+
   @Deprecated // to be removed before 2.0
   public LogicalCalc(
       RelOptCluster cluster,
@@ -91,21 +99,13 @@ public final class LogicalCalc extends Calc {
   public static LogicalCalc create(final RelNode input,
       final RexProgram program) {
     final RelOptCluster cluster = input.getCluster();
-    final RelMetadataQuery mq = RelMetadataQuery.instance();
+    final RelMetadataQuery mq = cluster.getMetadataQuery();
     final RelTraitSet traitSet = cluster.traitSet()
         .replace(Convention.NONE)
         .replaceIfs(RelCollationTraitDef.INSTANCE,
-            new Supplier<List<RelCollation>>() {
-              public List<RelCollation> get() {
-                return RelMdCollation.calc(mq, input, program);
-              }
-            })
+            () -> RelMdCollation.calc(mq, input, program))
         .replaceIf(RelDistributionTraitDef.INSTANCE,
-            new Supplier<RelDistribution>() {
-              public RelDistribution get() {
-                return RelMdDistribution.calc(mq, input, program);
-              }
-            });
+            () -> RelMdDistribution.calc(mq, input, program));
     return new LogicalCalc(cluster, traitSet, input, program);
   }
 

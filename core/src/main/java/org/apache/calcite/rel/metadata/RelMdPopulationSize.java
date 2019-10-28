@@ -22,7 +22,6 @@ import org.apache.calcite.rel.core.Exchange;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.Project;
-import org.apache.calcite.rel.core.SemiJoin;
 import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.core.Union;
 import org.apache.calcite.rel.core.Values;
@@ -69,7 +68,7 @@ public class RelMdPopulationSize
 
   public Double getPopulationSize(Union rel, RelMetadataQuery mq,
       ImmutableBitSet groupKey) {
-    Double population = 0.0;
+    double population = 0.0;
     for (RelNode input : rel.getInputs()) {
       Double subPop = mq.getPopulationSize(input, groupKey);
       if (subPop == null) {
@@ -83,11 +82,6 @@ public class RelMdPopulationSize
   public Double getPopulationSize(Join rel, RelMetadataQuery mq,
       ImmutableBitSet groupKey) {
     return RelMdUtil.getJoinPopulationSize(mq, rel, groupKey);
-  }
-
-  public Double getPopulationSize(SemiJoin rel, RelMetadataQuery mq,
-      ImmutableBitSet groupKey) {
-    return mq.getPopulationSize(rel.getLeft(), groupKey);
   }
 
   public Double getPopulationSize(Aggregate rel, RelMetadataQuery mq,

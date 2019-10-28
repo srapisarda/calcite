@@ -36,9 +36,8 @@ import java.util.RandomAccess;
 public abstract class Functions {
   private Functions() {}
 
-  public static final Map<Class<? extends Function>, Class>
-  FUNCTION_RESULT_TYPES =
-      Collections.<Class<? extends Function>, Class>unmodifiableMap(
+  public static final Map<Class<? extends Function>, Class> FUNCTION_RESULT_TYPES =
+      Collections.unmodifiableMap(
           map(Function0.class, Object.class,
               Function1.class, Object.class,
               Function2.class, Object.class,
@@ -75,19 +74,10 @@ public abstract class Functions {
   private static final EqualityComparer<Object[]> ARRAY_COMPARER =
       new ArrayEqualityComparer();
 
-  private static final Function1 CONSTANT_NULL_FUNCTION1 =
-      new Function1() {
-        public Object apply(Object s) {
-          return null;
-        }
-      };
+  private static final Function1 CONSTANT_NULL_FUNCTION1 = s -> null;
 
   private static final Function1 TO_STRING_FUNCTION1 =
-      new Function1<Object, String>() {
-        public String apply(Object a0) {
-          return a0.toString();
-        }
-      };
+      (Function1<Object, String>) Object::toString;
 
   @SuppressWarnings("unchecked")
   private static <K, V> Map<K, V> map(K k, V v, Object... rest) {
@@ -109,11 +99,7 @@ public abstract class Functions {
 
   /** Returns a 1-parameter function that always returns the same value. */
   public static <T, R> Function1<T, R> constant(final R r) {
-    return new Function1<T, R>() {
-      public R apply(T s) {
-        return r;
-      }
-    };
+    return s -> r;
   }
 
   /** Returns a 1-parameter function that always returns null. */
@@ -195,20 +181,12 @@ public abstract class Functions {
    * @return Predicate that tests for desired type
    */
   public static <T, T2> Predicate1<T> ofTypePredicate(final Class<T2> clazz) {
-    return new Predicate1<T>() {
-      public boolean apply(T v1) {
-        return v1 == null || clazz.isInstance(v1);
-      }
-    };
+    return v1 -> v1 == null || clazz.isInstance(v1);
   }
 
   public static <T1, T2> Predicate2<T1, T2> toPredicate2(
       final Predicate1<T1> p1) {
-    return new Predicate2<T1, T2>() {
-      public boolean apply(T1 v1, T2 v2) {
-        return p1.apply(v1);
-      }
-    };
+    return (v1, v2) -> p1.apply(v1);
   }
 
   /**
@@ -216,11 +194,7 @@ public abstract class Functions {
    */
   public static <T1, T2> Predicate2<T1, T2> toPredicate(
       final Function2<T1, T2, Boolean> function) {
-    return new Predicate2<T1, T2>() {
-      public boolean apply(T1 v1, T2 v2) {
-        return function.apply(v1, v2);
-      }
-    };
+    return function::apply;
   }
 
   /**
@@ -228,11 +202,7 @@ public abstract class Functions {
    */
   private static <T> Predicate1<T> toPredicate(
       final Function1<T, Boolean> function) {
-    return new Predicate1<T>() {
-      public boolean apply(T v1) {
-        return function.apply(v1);
-      }
-    };
+    return function::apply;
   }
 
   /**
@@ -261,11 +231,7 @@ public abstract class Functions {
    */
   public static <T1> Function1<T1, Integer> adapt(
       final IntegerFunction1<T1> f) {
-    return new Function1<T1, Integer>() {
-      public Integer apply(T1 a0) {
-        return f.apply(a0);
-      }
-    };
+    return f::apply;
   }
 
   /**
@@ -273,11 +239,7 @@ public abstract class Functions {
    * an {@link Function1} returning a {@link Double}.
    */
   public static <T1> Function1<T1, Double> adapt(final DoubleFunction1<T1> f) {
-    return new Function1<T1, Double>() {
-      public Double apply(T1 a0) {
-        return f.apply(a0);
-      }
-    };
+    return f::apply;
   }
 
   /**
@@ -285,11 +247,7 @@ public abstract class Functions {
    * an {@link Function1} returning a {@link Long}.
    */
   public static <T1> Function1<T1, Long> adapt(final LongFunction1<T1> f) {
-    return new Function1<T1, Long>() {
-      public Long apply(T1 a0) {
-        return f.apply(a0);
-      }
-    };
+    return f::apply;
   }
 
   /**
@@ -297,11 +255,7 @@ public abstract class Functions {
    * an {@link Function1} returning a {@link Float}.
    */
   public static <T1> Function1<T1, Float> adapt(final FloatFunction1<T1> f) {
-    return new Function1<T1, Float>() {
-      public Float apply(T1 a0) {
-        return f.apply(a0);
-      }
-    };
+    return f::apply;
   }
 
   /**
@@ -511,11 +465,11 @@ public abstract class Functions {
   private static class ArrayEqualityComparer
       implements EqualityComparer<Object[]> {
     public boolean equal(Object[] v1, Object[] v2) {
-      return Arrays.equals(v1, v2);
+      return Arrays.deepEquals(v1, v2);
     }
 
     public int hashCode(Object[] t) {
-      return Arrays.hashCode(t);
+      return Arrays.deepHashCode(t);
     }
   }
 
@@ -531,7 +485,10 @@ public abstract class Functions {
     }
   }
 
-  /** Selector equality comparer. */
+  /** Selector equality comparer.
+   *
+   * @param <T> element type
+   * @param <T2> target type */
   private static final class SelectorEqualityComparer<T, T2>
       implements EqualityComparer<T> {
     private final Function1<T, T2> selector;
@@ -624,7 +581,11 @@ public abstract class Functions {
     }
   }
 
-  /** Ignore. */
+  /** Ignore.
+   *
+   * @param <R> result type
+   * @param <T0> first argument type
+   * @param <T1> second argument type */
   private static final class Ignore<R, T0, T1>
       implements Function0<R>, Function1<T0, R>, Function2<T0, T1, R> {
     public R apply() {
@@ -642,13 +603,15 @@ public abstract class Functions {
     static final Ignore INSTANCE = new Ignore();
   }
 
-  /** List that generates each element using a function. */
+  /** List that generates each element using a function.
+   *
+   * @param <E> element type */
   private static class GeneratingList<E> extends AbstractList<E>
       implements RandomAccess {
     private final int size;
     private final Function1<Integer, E> fn;
 
-    public GeneratingList(int size, Function1<Integer, E> fn) {
+    GeneratingList(int size, Function1<Integer, E> fn) {
       this.size = size;
       this.fn = fn;
     }

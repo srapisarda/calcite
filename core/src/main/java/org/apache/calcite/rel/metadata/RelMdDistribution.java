@@ -27,6 +27,7 @@ import org.apache.calcite.rel.core.Exchange;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Project;
 import org.apache.calcite.rel.core.SetOp;
+import org.apache.calcite.rel.core.Snapshot;
 import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.core.Values;
@@ -113,6 +114,12 @@ public class RelMdDistribution
   }
 
   /** Helper method to determine a
+   * {@link Snapshot}'s distribution. */
+  public static RelDistribution snapshot(RelMetadataQuery mq, RelNode input) {
+    return mq.distribution(input);
+  }
+
+  /** Helper method to determine a
    * {@link Sort}'s distribution. */
   public static RelDistribution sort(RelMetadataQuery mq, RelNode input) {
     return mq.distribution(input);
@@ -134,10 +141,17 @@ public class RelMdDistribution
    * {@link org.apache.calcite.rel.core.Calc}'s distribution. */
   public static RelDistribution calc(RelMetadataQuery mq, RelNode input,
       RexProgram program) {
-    throw new AssertionError(); // TODO:
+    assert program.getCondition() != null || !program.getProjectList().isEmpty();
+    final RelDistribution inputDistribution = mq.distribution(input);
+    if (!program.getProjectList().isEmpty()) {
+      final Mappings.TargetMapping mapping = program.getPartialMapping(
+          input.getRowType().getFieldCount());
+      return inputDistribution.apply(mapping);
+    }
+    return inputDistribution;
   }
 
-  /** Helper method to determine a {@link Project}'s collation. */
+  /** Helper method to determine a {@link Project}'s distribution. */
   public static RelDistribution project(RelMetadataQuery mq, RelNode input,
       List<? extends RexNode> projects) {
     final RelDistribution inputDistribution = mq.distribution(input);

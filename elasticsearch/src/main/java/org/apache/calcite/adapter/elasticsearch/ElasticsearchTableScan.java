@@ -25,9 +25,11 @@ import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
+import org.apache.calcite.rel.rules.AggregateExpandDistinctAggregatesRule;
 import org.apache.calcite.rel.type.RelDataType;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Relational expression representing a scan of an Elasticsearch type.
@@ -48,13 +50,13 @@ public class ElasticsearchTableScan extends TableScan implements ElasticsearchRe
    * @param elasticsearchTable Elasticsearch table
    * @param projectRowType Fields and types to project; null to project raw row
    */
-  protected ElasticsearchTableScan(RelOptCluster cluster, RelTraitSet traitSet, RelOptTable table,
-      ElasticsearchTable elasticsearchTable, RelDataType projectRowType) {
+  ElasticsearchTableScan(RelOptCluster cluster, RelTraitSet traitSet,
+       RelOptTable table, ElasticsearchTable elasticsearchTable,
+       RelDataType projectRowType) {
     super(cluster, traitSet, table);
-    this.elasticsearchTable = elasticsearchTable;
+    this.elasticsearchTable = Objects.requireNonNull(elasticsearchTable, "elasticsearchTable");
     this.projectRowType = projectRowType;
 
-    assert elasticsearchTable != null;
     assert getConvention() == ElasticsearchRel.CONVENTION;
   }
 
@@ -77,6 +79,10 @@ public class ElasticsearchTableScan extends TableScan implements ElasticsearchRe
     for (RelOptRule rule: ElasticsearchRules.RULES) {
       planner.addRule(rule);
     }
+
+    // remove this rule otherwise elastic can't correctly interpret approx_count_distinct()
+    // it is converted to cardinality aggregation in Elastic
+    planner.removeRule(AggregateExpandDistinctAggregatesRule.INSTANCE);
   }
 
   @Override public void implement(Implementor implementor) {

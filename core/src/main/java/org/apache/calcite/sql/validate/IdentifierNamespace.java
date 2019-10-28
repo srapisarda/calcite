@@ -18,9 +18,7 @@ package org.apache.calcite.sql.validate;
 
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
-import org.apache.calcite.rel.type.RelDataTypeFieldImpl;
 import org.apache.calcite.sql.SqlCall;
-import org.apache.calcite.sql.SqlDataTypeSpec;
 import org.apache.calcite.sql.SqlIdentifier;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
@@ -28,12 +26,11 @@ import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.util.Pair;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 import javax.annotation.Nullable;
 
 import static org.apache.calcite.util.Static.RESOURCE;
@@ -47,7 +44,7 @@ public class IdentifierNamespace extends AbstractNamespace {
 
   private final SqlIdentifier id;
   private final SqlValidatorScope parentScope;
-  private final SqlNodeList extendList;
+  public final SqlNodeList extendList;
 
   /**
    * The underlying namespace. Often a {@link TableNamespace}.
@@ -77,8 +74,7 @@ public class IdentifierNamespace extends AbstractNamespace {
     super(validator, enclosingNode);
     this.id = id;
     this.extendList = extendList;
-    this.parentScope = parentScope;
-    assert parentScope != null;
+    this.parentScope = Objects.requireNonNull(parentScope);
   }
 
   IdentifierNamespace(SqlValidatorImpl validator, SqlNode node,
@@ -100,13 +96,85 @@ public class IdentifierNamespace extends AbstractNamespace {
     }
   }
 
-  public RelDataType validateImpl(RelDataType targetRowType) {
-    resolvedNamespace = parentScope.getTableNamespace(id.names);
-    if (resolvedNamespace == null) {
-      throw validator.newValidationError(id,
-          RESOURCE.tableNameNotFound(id.toString()));
+  private SqlValidatorNamespace resolveImpl(SqlIdentifier id) {
+    final SqlNameMatcher nameMatcher = validator.catalogReader.nameMatcher();
+    final SqlValidatorScope.ResolvedImpl resolved =
+        new SqlValidatorScope.ResolvedImpl();
+    final List<String> names = SqlIdentifier.toStar(id.names);
+    try {
+      parentScope.resolveTable(names, nameMatcher,
+          SqlValidatorScope.Path.EMPTY, resolved);
+    } catch (CyclicDefinitionException e) {
+      if (e.depth == 1) {
+        throw validator.newValidationError(id,
+            RESOURCE.cyclicDefinition(id.toString(),
+                SqlIdentifier.getString(e.path)));
+      } else {
+        throw new CyclicDefinitionException(e.depth - 1, e.path);
+      }
+    }
+    SqlValidatorScope.Resolve previousResolve = null;
+    if (resolved.count() == 1) {
+      final SqlValidatorScope.Resolve resolve =
+          previousResolve = resolved.only();
+      if (resolve.remainingNames.isEmpty()) {
+        return resolve.namespace;
+      }
+      // If we're not case sensitive, give an error.
+      // If we're case sensitive, we'll shortly try again and give an error
+      // then.
+      if (!nameMatcher.isCaseSensitive()) {
+        throw validator.newValidationError(id,
+            RESOURCE.objectNotFoundWithin(resolve.remainingNames.get(0),
+                SqlIdentifier.getString(resolve.path.stepNames())));
+      }
     }
 
+    // Failed to match.  If we're matching case-sensitively, try a more
+    // lenient match. If we find something we can offer a helpful hint.
+    if (nameMatcher.isCaseSensitive()) {
+      final SqlNameMatcher liberalMatcher = SqlNameMatchers.liberal();
+      resolved.clear();
+      parentScope.resolveTable(names, liberalMatcher,
+          SqlValidatorScope.Path.EMPTY, resolved);
+      if (resolved.count() == 1) {
+        final SqlValidatorScope.Resolve resolve = resolved.only();
+        if (resolve.remainingNames.isEmpty()
+            || previousResolve == null) {
+          // We didn't match it case-sensitive, so they must have had the
+          // right identifier, wrong case.
+          //
+          // If previousResolve is null, we matched nothing case-sensitive and
+          // everything case-insensitive, so the mismatch must have been at
+          // position 0.
+          final int i = previousResolve == null ? 0
+              : previousResolve.path.stepCount();
+          final int offset = resolve.path.stepCount()
+              + resolve.remainingNames.size() - names.size();
+          final List<String> prefix =
+              resolve.path.stepNames().subList(0, offset + i);
+          final String next = resolve.path.stepNames().get(i + offset);
+          if (prefix.isEmpty()) {
+            throw validator.newValidationError(id,
+                RESOURCE.objectNotFoundDidYouMean(names.get(i), next));
+          } else {
+            throw validator.newValidationError(id,
+                RESOURCE.objectNotFoundWithinDidYouMean(names.get(i),
+                    SqlIdentifier.getString(prefix), next));
+          }
+        } else {
+          throw validator.newValidationError(id,
+              RESOURCE.objectNotFoundWithin(resolve.remainingNames.get(0),
+                  SqlIdentifier.getString(resolve.path.stepNames())));
+        }
+      }
+    }
+    throw validator.newValidationError(id,
+        RESOURCE.objectNotFound(id.getComponent(0).toString()));
+  }
+
+  public RelDataType validateImpl(RelDataType targetRowType) {
+    resolvedNamespace = Objects.requireNonNull(resolveImpl(id));
     if (resolvedNamespace instanceof TableNamespace) {
       SqlValidatorTable table = resolvedNamespace.getTable();
       if (validator.shouldExpandIdentifiers()) {
@@ -117,7 +185,7 @@ public class IdentifierNamespace extends AbstractNamespace {
           // identifier, as best we can. We assume that qualification
           // adds names to the front, e.g. FOO.BAR becomes BAZ.FOO.BAR.
           List<SqlParserPos> poses =
-              new ArrayList<SqlParserPos>(
+              new ArrayList<>(
                   Collections.nCopies(
                       qualifiedNames.size(), id.getParserPosition()));
           int offset = qualifiedNames.size() - id.names.size();
@@ -137,20 +205,11 @@ public class IdentifierNamespace extends AbstractNamespace {
     RelDataType rowType = resolvedNamespace.getRowType();
 
     if (extendList != null) {
-      final List<RelDataTypeField> fields = Lists.newArrayList();
-      final Iterator<SqlNode> extendIterator = extendList.iterator();
-      while (extendIterator.hasNext()) {
-        SqlIdentifier id = (SqlIdentifier) extendIterator.next();
-        SqlDataTypeSpec type = (SqlDataTypeSpec) extendIterator.next();
-        fields.add(
-            new RelDataTypeFieldImpl(id.getSimple(), fields.size(),
-                type.deriveType(validator)));
-      }
-
       if (!(resolvedNamespace instanceof TableNamespace)) {
         throw new RuntimeException("cannot convert");
       }
-      resolvedNamespace = ((TableNamespace) resolvedNamespace).extend(fields);
+      resolvedNamespace =
+          ((TableNamespace) resolvedNamespace).extend(extendList);
       rowType = resolvedNamespace.getRowType();
     }
 
@@ -187,12 +246,8 @@ public class IdentifierNamespace extends AbstractNamespace {
     return resolvedNamespace.resolve();
   }
 
-  @Override public String translate(String name) {
-    return resolvedNamespace.translate(name);
-  }
-
   @Override public SqlValidatorTable getTable() {
-    return resolve().getTable();
+    return resolvedNamespace == null ? null : resolve().getTable();
   }
 
   public List<Pair<SqlNode, SqlMonotonicity>> getMonotonicExprs() {

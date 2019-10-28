@@ -17,10 +17,12 @@
 package org.apache.calcite.schema.impl;
 
 import org.apache.calcite.linq4j.tree.Expression;
+import org.apache.calcite.rel.type.RelProtoDataType;
 import org.apache.calcite.schema.Function;
 import org.apache.calcite.schema.Schema;
 import org.apache.calcite.schema.SchemaFactory;
 import org.apache.calcite.schema.SchemaPlus;
+import org.apache.calcite.schema.SchemaVersion;
 import org.apache.calcite.schema.Schemas;
 import org.apache.calcite.schema.Table;
 
@@ -48,10 +50,6 @@ import java.util.Set;
  *   <li>The name and parent schema are as specified in the constructor
  *       arguments.</li>
  * </ul>
- *
- * <p>For constructing custom maps and multi-maps, we recommend
- * {@link com.google.common.base.Suppliers} and
- * {@link com.google.common.collect.Maps}.</p>
  */
 public class AbstractSchema implements Schema {
   public AbstractSchema() {
@@ -61,8 +59,8 @@ public class AbstractSchema implements Schema {
     return true;
   }
 
-  public boolean contentsHaveChangedSince(long lastCheck, long now) {
-    return false;
+  public Schema snapshot(SchemaVersion version) {
+    return this;
   }
 
   public Expression getExpression(SchemaPlus parentSchema, String name) {
@@ -89,6 +87,28 @@ public class AbstractSchema implements Schema {
 
   public final Table getTable(String name) {
     return getTableMap().get(name);
+  }
+
+  /**
+   * Returns a map of types in this schema by name.
+   *
+   * <p>The implementations of {@link #getTypeNames()}
+   * and {@link #getType(String)} depend on this map.
+   * The default implementation of this method returns the empty map.
+   * Override this method to change their behavior.</p>
+   *
+   * @return Map of types in this schema by name
+   */
+  protected Map<String, RelProtoDataType> getTypeMap() {
+    return ImmutableMap.of();
+  }
+
+  public RelProtoDataType getType(String name) {
+    return getTypeMap().get(name);
+  }
+
+  public Set<String> getTypeNames() {
+    return getTypeMap().keySet();
   }
 
   /**

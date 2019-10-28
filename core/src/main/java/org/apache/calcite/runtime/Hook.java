@@ -16,11 +16,13 @@
  */
 package org.apache.calcite.runtime;
 
-import com.google.common.base.Function;
+import org.apache.calcite.util.Holder;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * Collection of hooks that can be set by observers and are executed at various
@@ -33,8 +35,27 @@ public enum Hook {
    * in tests. */
   CURRENT_TIME,
 
+  /** Called to get stdin, stdout, stderr.
+   * Use this to re-assign streams in tests. */
+  STANDARD_STREAMS,
+
+  /** Returns a boolean value, whether RelBuilder should simplify expressions.
+   * Default true. */
+  REL_BUILDER_SIMPLIFY,
+
+  /** Returns a boolean value, whether the return convention should be
+   * {@link org.apache.calcite.interpreter.BindableConvention}.
+   * Default false. */
+  ENABLE_BINDABLE,
+
   /** Called with the SQL string and parse tree, in an array. */
   PARSE_TREE,
+
+  /** Converts a SQL string to a
+   * {@link org.apache.calcite.jdbc.CalcitePrepare.Query} object. This hook is
+   * an opportunity to execute a {@link org.apache.calcite.rel.RelNode} query
+   * plan in the JDBC driver rather than the usual SQL string. */
+  STRING_TO_QUERY,
 
   /** Called with the generated Java plan, just before it is compiled by
    * Janino. */
@@ -42,6 +63,9 @@ public enum Hook {
 
   /** Called with the output of sql-to-rel-converter. */
   CONVERTED,
+
+  /** Called with the created planner. */
+  PLANNER,
 
   /** Called after de-correlation and field trimming, but before
    * optimization. */
@@ -64,15 +88,11 @@ public enum Hook {
    * pipeline expressions (for the MongoDB adapter), et cetera. */
   QUERY_PLAN;
 
-  private final List<Function<Object, Object>> handlers =
-      new CopyOnWriteArrayList<Function<Object, Object>>();
+  private final List<Consumer<Object>> handlers =
+      new CopyOnWriteArrayList<>();
 
-  private final ThreadLocal<List<Function<Object, Object>>> threadHandlers =
-      new ThreadLocal<List<Function<Object, Object>>>() {
-        protected List<Function<Object, Object>> initialValue() {
-          return new ArrayList<Function<Object, Object>>();
-        }
-      };
+  private final ThreadLocal<List<Consumer<Object>>> threadHandlers =
+      ThreadLocal.withInitial(ArrayList::new);
 
   /** Adds a handler for this Hook.
    *
@@ -88,61 +108,88 @@ public enum Hook {
    *     }</pre>
    * </blockquote>
    */
-  public <T, R> Closeable add(final Function<T, R> handler) {
+  public <T> Closeable add(final Consumer<T> handler) {
     //noinspection unchecked
-    handlers.add((Function<Object, Object>) handler);
-    return new Closeable() {
-      public void close() {
-        remove(handler);
-      }
-    };
+    handlers.add((Consumer<Object>) handler);
+    return () -> remove(handler);
+  }
+
+  /** @deprecated Use {@link #add(Consumer)}. */
+  @SuppressWarnings("Guava")
+  @Deprecated // to be removed in 2.0
+  public <T, R> Closeable add(final Function<T, R> handler) {
+    return add((Consumer<T>) handler::apply);
   }
 
   /** Removes a handler from this Hook. */
-  private boolean remove(Function handler) {
+  private boolean remove(Consumer handler) {
     return handlers.remove(handler);
   }
 
   /** Adds a handler for this thread. */
-  public <T, R> Closeable addThread(final Function<T, R> handler) {
+  public <T> Closeable addThread(final Consumer<T> handler) {
     //noinspection unchecked
-    threadHandlers.get().add((Function<Object, Object>) handler);
-    return new Closeable() {
-      public void close() {
-        removeThread(handler);
-      }
-    };
+    threadHandlers.get().add((Consumer<Object>) handler);
+    return () -> removeThread(handler);
+  }
+
+  /** @deprecated Use {@link #addThread(Consumer)}. */
+  @SuppressWarnings("Guava")
+  @Deprecated // to be removed in 2.0
+  public <T, R> Closeable addThread(
+      final com.google.common.base.Function<T, R> handler) {
+    return addThread((Consumer<T>) handler::apply);
   }
 
   /** Removes a thread handler from this Hook. */
-  private boolean removeThread(Function handler) {
+  private boolean removeThread(Consumer handler) {
     return threadHandlers.get().remove(handler);
+  }
+
+  /** @deprecated Use {@link #propertyJ}. */
+  @SuppressWarnings("Guava")
+  @Deprecated // return type will change in 2.0
+  public static <V> com.google.common.base.Function<Holder<V>, Void> property(final V v) {
+    return holder -> {
+      holder.set(v);
+      return null;
+    };
+  }
+
+  /** Returns a function that, when a hook is called, will "return" a given
+   * value. (Because of the way hooks work, it "returns" the value by writing
+   * into a {@link Holder}. */
+  public static <V> Consumer<Holder<V>> propertyJ(final V v) {
+    return holder -> {
+      holder.set(v);
+    };
   }
 
   /** Runs all handlers registered for this Hook, with the given argument. */
   public void run(Object arg) {
-    for (Function<Object, Object> handler : handlers) {
-      handler.apply(arg);
+    for (Consumer<Object> handler : handlers) {
+      handler.accept(arg);
     }
-    for (Function<Object, Object> handler : threadHandlers.get()) {
-      handler.apply(arg);
+    for (Consumer<Object> handler : threadHandlers.get()) {
+      handler.accept(arg);
     }
   }
 
-  /** Removes a Hook after use.
-   *
-   * <p>Note: Although it would be convenient, this interface cannot extend
-   * {@code AutoCloseable} while Calcite maintains compatibility with
-   * JDK 1.6.</p>
-   */
-  public interface Closeable /*extends AutoCloseable*/ {
-    /** Closeable that does nothing. */
-    Closeable EMPTY =
-        new Closeable() {
-          public void close() {}
-        };
+  /** Returns the value of a property hook.
+   * (Property hooks take a {@link Holder} as an argument.) */
+  public <V> V get(V defaultValue) {
+    final Holder<V> holder = Holder.of(defaultValue);
+    run(holder);
+    return holder.get();
+  }
 
-    void close(); // override, removing "throws"
+  /** Removes a Hook after use. */
+  public interface Closeable extends AutoCloseable {
+    /** Closeable that does nothing. */
+    Closeable EMPTY = () -> { };
+
+    // override, removing "throws"
+    @Override void close();
   }
 }
 

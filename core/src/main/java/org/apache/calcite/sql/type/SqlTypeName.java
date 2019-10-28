@@ -16,13 +16,18 @@
  */
 package org.apache.calcite.sql.type;
 
-import org.apache.calcite.avatica.util.DateTimeUtils;
+import org.apache.calcite.avatica.util.TimeUnit;
 import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.parser.SqlParserPos;
+import org.apache.calcite.util.DateString;
+import org.apache.calcite.util.TimeString;
+import org.apache.calcite.util.TimestampString;
 import org.apache.calcite.util.Util;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
 
 import java.math.BigDecimal;
 import java.sql.Types;
@@ -30,6 +35,7 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Enumeration of the type names which can be used to construct a SQL type.
@@ -57,11 +63,37 @@ public enum SqlTypeName {
   DATE(PrecScale.NO_NO, false, Types.DATE, SqlTypeFamily.DATE),
   TIME(PrecScale.NO_NO | PrecScale.YES_NO, false, Types.TIME,
       SqlTypeFamily.TIME),
+  TIME_WITH_LOCAL_TIME_ZONE(PrecScale.NO_NO | PrecScale.YES_NO, false, Types.OTHER,
+      SqlTypeFamily.TIME),
   TIMESTAMP(PrecScale.NO_NO | PrecScale.YES_NO, false, Types.TIMESTAMP,
       SqlTypeFamily.TIMESTAMP),
+  TIMESTAMP_WITH_LOCAL_TIME_ZONE(PrecScale.NO_NO | PrecScale.YES_NO, false, Types.OTHER,
+      SqlTypeFamily.TIMESTAMP),
+  INTERVAL_YEAR(PrecScale.NO_NO, false, Types.OTHER,
+      SqlTypeFamily.INTERVAL_YEAR_MONTH),
   INTERVAL_YEAR_MONTH(PrecScale.NO_NO, false, Types.OTHER,
       SqlTypeFamily.INTERVAL_YEAR_MONTH),
-  INTERVAL_DAY_TIME(PrecScale.NO_NO | PrecScale.YES_NO | PrecScale.YES_YES,
+  INTERVAL_MONTH(PrecScale.NO_NO, false, Types.OTHER,
+      SqlTypeFamily.INTERVAL_YEAR_MONTH),
+  INTERVAL_DAY(PrecScale.NO_NO | PrecScale.YES_NO | PrecScale.YES_YES,
+      false, Types.OTHER, SqlTypeFamily.INTERVAL_DAY_TIME),
+  INTERVAL_DAY_HOUR(PrecScale.NO_NO | PrecScale.YES_NO | PrecScale.YES_YES,
+      false, Types.OTHER, SqlTypeFamily.INTERVAL_DAY_TIME),
+  INTERVAL_DAY_MINUTE(PrecScale.NO_NO | PrecScale.YES_NO | PrecScale.YES_YES,
+      false, Types.OTHER, SqlTypeFamily.INTERVAL_DAY_TIME),
+  INTERVAL_DAY_SECOND(PrecScale.NO_NO | PrecScale.YES_NO | PrecScale.YES_YES,
+      false, Types.OTHER, SqlTypeFamily.INTERVAL_DAY_TIME),
+  INTERVAL_HOUR(PrecScale.NO_NO | PrecScale.YES_NO | PrecScale.YES_YES,
+      false, Types.OTHER, SqlTypeFamily.INTERVAL_DAY_TIME),
+  INTERVAL_HOUR_MINUTE(PrecScale.NO_NO | PrecScale.YES_NO | PrecScale.YES_YES,
+      false, Types.OTHER, SqlTypeFamily.INTERVAL_DAY_TIME),
+  INTERVAL_HOUR_SECOND(PrecScale.NO_NO | PrecScale.YES_NO | PrecScale.YES_YES,
+      false, Types.OTHER, SqlTypeFamily.INTERVAL_DAY_TIME),
+  INTERVAL_MINUTE(PrecScale.NO_NO | PrecScale.YES_NO | PrecScale.YES_YES,
+      false, Types.OTHER, SqlTypeFamily.INTERVAL_DAY_TIME),
+  INTERVAL_MINUTE_SECOND(PrecScale.NO_NO | PrecScale.YES_NO | PrecScale.YES_YES,
+      false, Types.OTHER, SqlTypeFamily.INTERVAL_DAY_TIME),
+  INTERVAL_SECOND(PrecScale.NO_NO | PrecScale.YES_NO | PrecScale.YES_YES,
       false, Types.OTHER, SqlTypeFamily.INTERVAL_DAY_TIME),
   CHAR(PrecScale.NO_NO | PrecScale.YES_NO, false, Types.CHAR,
       SqlTypeFamily.CHARACTER),
@@ -87,7 +119,8 @@ public enum SqlTypeName {
   COLUMN_LIST(PrecScale.NO_NO, false, Types.OTHER + 2,
       SqlTypeFamily.COLUMN_LIST),
   DYNAMIC_STAR(PrecScale.NO_NO | PrecScale.YES_NO | PrecScale.YES_YES, true,
-      Types.JAVA_OBJECT, SqlTypeFamily.ANY);
+      Types.JAVA_OBJECT, SqlTypeFamily.ANY),
+  GEOMETRY(PrecScale.NO_NO, true, ExtraSqlTypes.GEOMETRY, SqlTypeFamily.GEO);
 
   public static final int MAX_DATETIME_PRECISION = 3;
 
@@ -114,7 +147,11 @@ public enum SqlTypeName {
       ImmutableList.of(
           BOOLEAN, INTEGER, VARCHAR, DATE, TIME, TIMESTAMP, NULL, DECIMAL,
           ANY, CHAR, BINARY, VARBINARY, TINYINT, SMALLINT, BIGINT, REAL,
-          DOUBLE, SYMBOL, INTERVAL_YEAR_MONTH, INTERVAL_DAY_TIME,
+          DOUBLE, SYMBOL, INTERVAL_YEAR, INTERVAL_YEAR_MONTH, INTERVAL_MONTH,
+          INTERVAL_DAY, INTERVAL_DAY_HOUR, INTERVAL_DAY_MINUTE,
+          INTERVAL_DAY_SECOND, INTERVAL_HOUR, INTERVAL_HOUR_MINUTE,
+          INTERVAL_HOUR_SECOND, INTERVAL_MINUTE, INTERVAL_MINUTE_SECOND,
+          INTERVAL_SECOND, TIME_WITH_LOCAL_TIME_ZONE, TIMESTAMP_WITH_LOCAL_TIME_ZONE,
           FLOAT, MULTISET, DISTINCT, STRUCTURED, ROW, CURSOR, COLUMN_LIST);
 
   public static final List<SqlTypeName> BOOLEAN_TYPES =
@@ -145,10 +182,29 @@ public enum SqlTypeName {
       combine(CHAR_TYPES, BINARY_TYPES);
 
   public static final List<SqlTypeName> DATETIME_TYPES =
-      ImmutableList.of(DATE, TIME, TIMESTAMP);
+      ImmutableList.of(DATE, TIME, TIME_WITH_LOCAL_TIME_ZONE,
+          TIMESTAMP, TIMESTAMP_WITH_LOCAL_TIME_ZONE);
 
-  public static final List<SqlTypeName> INTERVAL_TYPES =
-      ImmutableList.of(INTERVAL_DAY_TIME, INTERVAL_YEAR_MONTH);
+  public static final Set<SqlTypeName> YEAR_INTERVAL_TYPES =
+      Sets.immutableEnumSet(SqlTypeName.INTERVAL_YEAR,
+          SqlTypeName.INTERVAL_YEAR_MONTH,
+          SqlTypeName.INTERVAL_MONTH);
+
+  public static final Set<SqlTypeName> DAY_INTERVAL_TYPES =
+      Sets.immutableEnumSet(SqlTypeName.INTERVAL_DAY,
+          SqlTypeName.INTERVAL_DAY_HOUR,
+          SqlTypeName.INTERVAL_DAY_MINUTE,
+          SqlTypeName.INTERVAL_DAY_SECOND,
+          SqlTypeName.INTERVAL_HOUR,
+          SqlTypeName.INTERVAL_HOUR_MINUTE,
+          SqlTypeName.INTERVAL_HOUR_SECOND,
+          SqlTypeName.INTERVAL_MINUTE,
+          SqlTypeName.INTERVAL_MINUTE_SECOND,
+          SqlTypeName.INTERVAL_SECOND);
+
+  public static final Set<SqlTypeName> INTERVAL_TYPES =
+      Sets.immutableEnumSet(
+          Iterables.concat(YEAR_INTERVAL_TYPES, DAY_INTERVAL_TYPES));
 
   private static final Map<Integer, SqlTypeName> JDBC_TYPE_TO_NAME =
       ImmutableMap.<Integer, SqlTypeName>builder()
@@ -206,7 +262,7 @@ public enum SqlTypeName {
   private final int jdbcOrdinal;
   private final SqlTypeFamily family;
 
-  private SqlTypeName(int signatures, boolean special, int jdbcType,
+  SqlTypeName(int signatures, boolean special, int jdbcType,
       SqlTypeFamily family) {
     this.signatures = signatures;
     this.special = special;
@@ -307,8 +363,19 @@ public enum SqlTypeName {
     switch (this) {
     case DECIMAL:
       return 0;
-    case INTERVAL_DAY_TIME:
+    case INTERVAL_YEAR:
     case INTERVAL_YEAR_MONTH:
+    case INTERVAL_MONTH:
+    case INTERVAL_DAY:
+    case INTERVAL_DAY_HOUR:
+    case INTERVAL_DAY_MINUTE:
+    case INTERVAL_DAY_SECOND:
+    case INTERVAL_HOUR:
+    case INTERVAL_HOUR_MINUTE:
+    case INTERVAL_HOUR_SECOND:
+    case INTERVAL_MINUTE:
+    case INTERVAL_MINUTE_SECOND:
+    case INTERVAL_SECOND:
       return DEFAULT_INTERVAL_FRACTIONAL_SECOND_PRECISION;
     default:
       return -1;
@@ -532,7 +599,7 @@ public enum SqlTypeName {
       return bytes;
 
     case DATE:
-      calendar = Calendar.getInstance(DateTimeUtils.GMT_ZONE);
+      calendar = Util.calendar();
       switch (limit) {
       case ZERO:
 
@@ -580,7 +647,7 @@ public enum SqlTypeName {
       if (beyond) {
         return null; // invalid values are impossible to represent
       }
-      calendar = Calendar.getInstance(DateTimeUtils.GMT_ZONE);
+      calendar = Util.calendar();
       switch (limit) {
       case ZERO:
 
@@ -605,7 +672,7 @@ public enum SqlTypeName {
       return calendar;
 
     case TIMESTAMP:
-      calendar = Calendar.getInstance(DateTimeUtils.GMT_ZONE);
+      calendar = Util.calendar();
       switch (limit) {
       case ZERO:
 
@@ -678,10 +745,23 @@ public enum SqlTypeName {
     case VARBINARY:
     case BINARY:
     case TIME:
+    case TIME_WITH_LOCAL_TIME_ZONE:
     case TIMESTAMP:
+    case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
       return 1;
-    case INTERVAL_DAY_TIME:
+    case INTERVAL_YEAR:
     case INTERVAL_YEAR_MONTH:
+    case INTERVAL_MONTH:
+    case INTERVAL_DAY:
+    case INTERVAL_DAY_HOUR:
+    case INTERVAL_DAY_MINUTE:
+    case INTERVAL_DAY_SECOND:
+    case INTERVAL_HOUR:
+    case INTERVAL_HOUR_MINUTE:
+    case INTERVAL_HOUR_SECOND:
+    case INTERVAL_MINUTE:
+    case INTERVAL_MINUTE_SECOND:
+    case INTERVAL_SECOND:
       return MIN_INTERVAL_START_PRECISION;
     default:
       return -1;
@@ -698,11 +778,89 @@ public enum SqlTypeName {
   public int getMinScale() {
     switch (this) {
     // TODO: Minimum numeric scale for decimal
-    case INTERVAL_DAY_TIME:
+    case INTERVAL_YEAR:
     case INTERVAL_YEAR_MONTH:
+    case INTERVAL_MONTH:
+    case INTERVAL_DAY:
+    case INTERVAL_DAY_HOUR:
+    case INTERVAL_DAY_MINUTE:
+    case INTERVAL_DAY_SECOND:
+    case INTERVAL_HOUR:
+    case INTERVAL_HOUR_MINUTE:
+    case INTERVAL_HOUR_SECOND:
+    case INTERVAL_MINUTE:
+    case INTERVAL_MINUTE_SECOND:
+    case INTERVAL_SECOND:
       return MIN_INTERVAL_FRACTIONAL_SECOND_PRECISION;
     default:
       return -1;
+    }
+  }
+
+  /** Returns {@code HOUR} for {@code HOUR TO SECOND} and
+   * {@code HOUR}, {@code SECOND} for {@code SECOND}. */
+  public TimeUnit getStartUnit() {
+    switch (this) {
+    case INTERVAL_YEAR:
+    case INTERVAL_YEAR_MONTH:
+      return TimeUnit.YEAR;
+    case INTERVAL_MONTH:
+      return TimeUnit.MONTH;
+    case INTERVAL_DAY:
+    case INTERVAL_DAY_HOUR:
+    case INTERVAL_DAY_MINUTE:
+    case INTERVAL_DAY_SECOND:
+      return TimeUnit.DAY;
+    case INTERVAL_HOUR:
+    case INTERVAL_HOUR_MINUTE:
+    case INTERVAL_HOUR_SECOND:
+      return TimeUnit.HOUR;
+    case INTERVAL_MINUTE:
+    case INTERVAL_MINUTE_SECOND:
+      return TimeUnit.MINUTE;
+    case INTERVAL_SECOND:
+      return TimeUnit.SECOND;
+    default:
+      throw new AssertionError(this);
+    }
+  }
+
+  /** Returns {@code SECOND} for both {@code HOUR TO SECOND} and
+   * {@code SECOND}. */
+  public TimeUnit getEndUnit() {
+    switch (this) {
+    case INTERVAL_YEAR:
+      return TimeUnit.YEAR;
+    case INTERVAL_YEAR_MONTH:
+    case INTERVAL_MONTH:
+      return TimeUnit.MONTH;
+    case INTERVAL_DAY:
+      return TimeUnit.DAY;
+    case INTERVAL_DAY_HOUR:
+    case INTERVAL_HOUR:
+      return TimeUnit.HOUR;
+    case INTERVAL_DAY_MINUTE:
+    case INTERVAL_HOUR_MINUTE:
+    case INTERVAL_MINUTE:
+      return TimeUnit.MINUTE;
+    case INTERVAL_DAY_SECOND:
+    case INTERVAL_HOUR_SECOND:
+    case INTERVAL_MINUTE_SECOND:
+    case INTERVAL_SECOND:
+      return TimeUnit.SECOND;
+    default:
+      throw new AssertionError(this);
+    }
+  }
+
+  public boolean isYearMonth() {
+    switch (this) {
+    case INTERVAL_YEAR:
+    case INTERVAL_YEAR_MONTH:
+    case INTERVAL_MONTH:
+      return true;
+    default:
+      return false;
     }
   }
 
@@ -764,11 +922,17 @@ public enum SqlTypeName {
     case BINARY:
       return SqlLiteral.createBinaryString((byte[]) o, pos);
     case DATE:
-      return SqlLiteral.createDate((Calendar) o, pos);
+      return SqlLiteral.createDate(o instanceof Calendar
+          ? DateString.fromCalendarFields((Calendar) o)
+          : (DateString) o, pos);
     case TIME:
-      return SqlLiteral.createTime((Calendar) o, 0 /* todo */, pos);
+      return SqlLiteral.createTime(o instanceof Calendar
+          ? TimeString.fromCalendarFields((Calendar) o)
+          : (TimeString) o, 0 /* todo */, pos);
     case TIMESTAMP:
-      return SqlLiteral.createTimestamp((Calendar) o, 0 /* todo */, pos);
+      return SqlLiteral.createTimestamp(o instanceof Calendar
+          ? TimestampString.fromCalendarFields((Calendar) o)
+          : (TimestampString) o, 0 /* todo */, pos);
     default:
       throw Util.unexpected(this);
     }

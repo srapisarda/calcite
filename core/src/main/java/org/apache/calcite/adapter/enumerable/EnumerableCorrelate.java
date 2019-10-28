@@ -23,11 +23,13 @@ import org.apache.calcite.linq4j.tree.ParameterExpression;
 import org.apache.calcite.linq4j.tree.Primitive;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelTraitSet;
+import org.apache.calcite.rel.RelCollationTraitDef;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Correlate;
 import org.apache.calcite.rel.core.CorrelationId;
 import org.apache.calcite.rel.core.JoinRelType;
-import org.apache.calcite.sql.SemiJoinType;
+import org.apache.calcite.rel.metadata.RelMdCollation;
+import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.util.BuiltInMethod;
 import org.apache.calcite.util.ImmutableBitSet;
 
@@ -44,14 +46,37 @@ public class EnumerableCorrelate extends Correlate
   public EnumerableCorrelate(RelOptCluster cluster, RelTraitSet traits,
       RelNode left, RelNode right,
       CorrelationId correlationId,
-      ImmutableBitSet requiredColumns, SemiJoinType joinType) {
+      ImmutableBitSet requiredColumns, JoinRelType joinType) {
     super(cluster, traits, left, right, correlationId, requiredColumns,
+        joinType);
+  }
+
+  /** Creates an EnumerableCorrelate. */
+  public static EnumerableCorrelate create(
+      RelNode left,
+      RelNode right,
+      CorrelationId correlationId,
+      ImmutableBitSet requiredColumns,
+      JoinRelType joinType) {
+    final RelOptCluster cluster = left.getCluster();
+    final RelMetadataQuery mq = cluster.getMetadataQuery();
+    final RelTraitSet traitSet =
+        cluster.traitSetOf(EnumerableConvention.INSTANCE)
+            .replaceIfs(RelCollationTraitDef.INSTANCE,
+                () -> RelMdCollation.enumerableCorrelate(mq, left, right, joinType));
+    return new EnumerableCorrelate(
+        cluster,
+        traitSet,
+        left,
+        right,
+        correlationId,
+        requiredColumns,
         joinType);
   }
 
   @Override public EnumerableCorrelate copy(RelTraitSet traitSet,
       RelNode left, RelNode right, CorrelationId correlationId,
-      ImmutableBitSet requiredColumns, SemiJoinType joinType) {
+      ImmutableBitSet requiredColumns, JoinRelType joinType) {
     return new EnumerableCorrelate(getCluster(),
         traitSet, left, right, correlationId, requiredColumns, joinType);
   }
@@ -100,15 +125,14 @@ public class EnumerableCorrelate extends Correlate
 
     Expression selector =
         EnumUtils.joinSelector(
-            joinType.returnsJustFirstInput() ? joinType.toJoinType()
-                : JoinRelType.INNER, physType,
+            joinType, physType,
             ImmutableList.of(leftResult.physType, rightResult.physType));
 
     builder.append(
         Expressions.call(leftExpression, BuiltInMethod.CORRELATE_JOIN.method,
-            Expressions.constant(joinType.toLinq4j()),
-        Expressions.lambda(corrBlock.toBlock(), corrArg),
-        selector));
+            Expressions.constant(EnumUtils.toLinq4jJoinType(joinType)),
+            Expressions.lambda(corrBlock.toBlock(), corrArg),
+            selector));
 
     return implementor.result(physType, builder.toBlock());
   }

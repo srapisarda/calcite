@@ -21,7 +21,6 @@ import org.apache.calcite.rel.metadata.Metadata;
 import org.apache.calcite.rel.metadata.MetadataDef;
 import org.apache.calcite.rel.metadata.MetadataHandler;
 import org.apache.calcite.rel.metadata.RelMetadataProvider;
-import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.metadata.UnboundMetadata;
 
 import com.google.common.collect.ImmutableMultimap;
@@ -44,26 +43,24 @@ class HepRelMetadataProvider implements RelMetadataProvider {
     return 107;
   }
 
-  public <M extends Metadata> UnboundMetadata<M>
-  apply(Class<? extends RelNode> relClass,
+  public <M extends Metadata> UnboundMetadata<M> apply(
+      Class<? extends RelNode> relClass,
       final Class<? extends M> metadataClass) {
-    return new UnboundMetadata<M>() {
-      public M bind(RelNode rel, RelMetadataQuery mq) {
-        if (!(rel instanceof HepRelVertex)) {
-          return null;
-        }
-        HepRelVertex vertex = (HepRelVertex) rel;
-        final RelNode rel2 = vertex.getCurrentRel();
-        UnboundMetadata<M> function =
-            rel.getCluster().getMetadataProvider().apply(rel2.getClass(),
-                metadataClass);
-        return function.bind(rel2, mq);
+    return (rel, mq) -> {
+      if (!(rel instanceof HepRelVertex)) {
+        return null;
       }
+      HepRelVertex vertex = (HepRelVertex) rel;
+      final RelNode rel2 = vertex.getCurrentRel();
+      UnboundMetadata<M> function =
+          rel.getCluster().getMetadataProvider().apply(rel2.getClass(),
+              metadataClass);
+      return function.bind(rel2, mq);
     };
   }
 
-  public <M extends Metadata> Multimap<Method, MetadataHandler<M>>
-  handlers(MetadataDef<M> def) {
+  public <M extends Metadata> Multimap<Method, MetadataHandler<M>> handlers(
+      MetadataDef<M> def) {
     return ImmutableMultimap.of();
   }
 }

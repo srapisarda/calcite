@@ -37,14 +37,14 @@ import static org.junit.Assert.assertTrue;
  */
 public class ArrayTableTest {
   @Test public void testPrimitiveArray() {
-    long[] values = new long[]{0, 0};
+    long[] values = {0, 0};
     ArrayTable.BitSlicedPrimitiveArray.orLong(4, values, 0, 0x0F);
     assertEquals(0x0F, values[0]);
     ArrayTable.BitSlicedPrimitiveArray.orLong(4, values, 2, 0x0F);
     assertEquals(0xF0F, values[0]);
 
     values = new long[]{
-      0x1213141516171819L, 0x232425262728292AL, 0x3435363738393A3BL};
+        0x1213141516171819L, 0x232425262728292AL, 0x3435363738393A3BL};
     assertEquals(
         0x324, ArrayTable.BitSlicedPrimitiveArray.getLong(12, values, 9));
     assertEquals(

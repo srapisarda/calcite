@@ -22,24 +22,15 @@ import org.apache.calcite.util.Bug;
 import org.apache.calcite.util.NlsString;
 import org.apache.calcite.util.Util;
 
-import com.google.common.base.Function;
-import com.google.common.collect.Lists;
-
 import java.util.List;
 
 /**
  * A character string literal.
  *
- * <p>Its {@link #value} field is an {@link NlsString} and {@link #typeName} is
- * {@link SqlTypeName#CHAR}.
+ * <p>Its {@link #value} field is an {@link NlsString} and
+ * {@link #getTypeName typeName} is {@link SqlTypeName#CHAR}.
  */
 public class SqlCharStringLiteral extends SqlAbstractStringLiteral {
-  private static final Function<SqlLiteral, NlsString> F =
-      new Function<SqlLiteral, NlsString>() {
-        public NlsString apply(SqlLiteral literal) {
-          return ((SqlCharStringLiteral) literal).getNlsString();
-        }
-      };
 
   //~ Constructors -----------------------------------------------------------
 
@@ -63,7 +54,7 @@ public class SqlCharStringLiteral extends SqlAbstractStringLiteral {
     return getNlsString().getCollation();
   }
 
-  public SqlNode clone(SqlParserPos pos) {
+  @Override public SqlCharStringLiteral clone(SqlParserPos pos) {
     return new SqlCharStringLiteral((NlsString) value, pos);
   }
 
@@ -71,19 +62,22 @@ public class SqlCharStringLiteral extends SqlAbstractStringLiteral {
       SqlWriter writer,
       int leftPrec,
       int rightPrec) {
+    assert value instanceof NlsString;
+    final NlsString nlsString = (NlsString) this.value;
     if (false) {
       Util.discard(Bug.FRG78_FIXED);
-      String stringValue = ((NlsString) value).getValue();
+      String stringValue = nlsString.getValue();
       writer.literal(
           writer.getDialect().quoteStringLiteral(stringValue));
     }
-    assert value instanceof NlsString;
-    writer.literal(value.toString());
+    writer.literal(nlsString.asSql(true, true, writer.getDialect()));
   }
 
   protected SqlAbstractStringLiteral concat1(List<SqlLiteral> literals) {
     return new SqlCharStringLiteral(
-        NlsString.concat(Lists.transform(literals, F)),
+        NlsString.concat(
+            Util.transform(literals,
+                literal -> ((SqlCharStringLiteral) literal).getNlsString())),
         literals.get(0).getParserPosition());
   }
 }

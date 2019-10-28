@@ -22,8 +22,11 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.JoinInfo;
 import org.apache.calcite.rel.core.JoinRelType;
-import org.apache.calcite.rel.core.SemiJoin;
+import org.apache.calcite.rel.core.RelFactories;
 import org.apache.calcite.rel.logical.LogicalJoin;
+import org.apache.calcite.tools.RelBuilderFactory;
+
+import com.google.common.collect.ImmutableSet;
 
 /**
  * Rule to add a semi-join into a join. Transformation is as follows:
@@ -36,15 +39,17 @@ import org.apache.calcite.rel.logical.LogicalJoin;
  */
 public class JoinAddRedundantSemiJoinRule extends RelOptRule {
   public static final JoinAddRedundantSemiJoinRule INSTANCE =
-      new JoinAddRedundantSemiJoinRule(LogicalJoin.class);
+      new JoinAddRedundantSemiJoinRule(LogicalJoin.class,
+          RelFactories.LOGICAL_BUILDER);
 
   //~ Constructors -----------------------------------------------------------
 
   /**
    * Creates an JoinAddRedundantSemiJoinRule.
    */
-  private JoinAddRedundantSemiJoinRule(Class<? extends Join> clazz) {
-    super(operand(clazz, any()));
+  public JoinAddRedundantSemiJoinRule(Class<? extends Join> clazz,
+      RelBuilderFactory relBuilderFactory) {
+    super(operand(clazz, any()), relBuilderFactory, null);
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -67,11 +72,11 @@ public class JoinAddRedundantSemiJoinRule extends RelOptRule {
     }
 
     RelNode semiJoin =
-        SemiJoin.create(origJoinRel.getLeft(),
+        LogicalJoin.create(origJoinRel.getLeft(),
             origJoinRel.getRight(),
             origJoinRel.getCondition(),
-            joinInfo.leftKeys,
-            joinInfo.rightKeys);
+            ImmutableSet.of(),
+            JoinRelType.SEMI);
 
     RelNode newJoinRel =
         origJoinRel.copy(

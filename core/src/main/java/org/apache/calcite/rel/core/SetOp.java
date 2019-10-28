@@ -26,11 +26,12 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.util.Util;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
-import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -81,7 +82,7 @@ public abstract class SetOp extends AbstractRelNode {
   }
 
   @Override public void replaceInput(int ordinalInParent, RelNode p) {
-    final List<RelNode> newInputs = new ArrayList<RelNode>(inputs);
+    final List<RelNode> newInputs = new ArrayList<>(inputs);
     newInputs.set(ordinalInParent, p);
     inputs = ImmutableList.copyOf(newInputs);
     recomputeDigest();
@@ -100,16 +101,16 @@ public abstract class SetOp extends AbstractRelNode {
   }
 
   @Override protected RelDataType deriveRowType() {
-    return getCluster().getTypeFactory().leastRestrictive(
-        new AbstractList<RelDataType>() {
-          @Override public RelDataType get(int index) {
-            return inputs.get(index).getRowType();
-          }
-
-          @Override public int size() {
-            return inputs.size();
-          }
-        });
+    final List<RelDataType> inputRowTypes =
+        Lists.transform(inputs, RelNode::getRowType);
+    final RelDataType rowType =
+        getCluster().getTypeFactory().leastRestrictive(inputRowTypes);
+    if (rowType == null) {
+      throw new IllegalArgumentException("Cannot compute compatible row type "
+          + "for arguments to set op: "
+          + Util.sepList(inputRowTypes, ", "));
+    }
+    return rowType;
   }
 
   /**
