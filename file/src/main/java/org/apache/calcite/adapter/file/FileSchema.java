@@ -19,6 +19,8 @@ package org.apache.calcite.adapter.file;
 import org.apache.calcite.adapter.csv.CsvFilterableTable;
 import org.apache.calcite.adapter.csv.JsonScannableTable;
 import org.apache.calcite.schema.SchemaPlus;
+import org.apache.calcite.schema.Statistic;
+import org.apache.calcite.schema.Statistics;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractSchema;
 import org.apache.calcite.util.Source;
@@ -29,9 +31,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.MalformedURLException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 /**
  * Schema mapped onto a set of URLs / HTML tables. Each table in the schema
@@ -145,7 +151,14 @@ class FileSchema extends AbstractSchema {
     }
     final Source sourceSansCsv = sourceSansGz.trimOrNull(".csv");
     if (sourceSansCsv != null) {
-      final Table table = new CsvFilterableTable(source, null);
+      Statistic statistics = null;
+      try {
+        final Stream<String> lines = Files.lines(Paths.get(sourceSansCsv.file().toURI()));
+        statistics = Statistics.of(lines.count(), ImmutableList.of());
+      } catch (IOException ignored) {
+
+      }
+      final Table table = new CsvFilterableTable(source, null, statistics);
       builder.put(Util.first(tableName, sourceSansCsv.path()), table);
       return true;
     }
