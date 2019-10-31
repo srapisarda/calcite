@@ -61,7 +61,7 @@ public class CsvSchemaFactory implements SchemaFactory {
     }
     // todo: get class for generating tables statistics.
 
-    return new CsvSchema(directoryFile, flavor, null);
+    return new CsvSchema(directoryFile, flavor);
   }
 }
 

@@ -68,7 +68,13 @@ public abstract class CsvTable extends AbstractTable {
   }
 
   @Override public Statistic getStatistic() {
-    return statistic;
+
+
+    if (statistic == null) {
+      return super.getStatistic();
+    } else {
+      return statistic;
+    }
   }
 }
 

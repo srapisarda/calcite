@@ -16,15 +16,25 @@
  */
 package org.apache.calcite.adapter.csv;
 
+import org.apache.calcite.schema.Statistic;
+import org.apache.calcite.schema.Statistics;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractSchema;
 import org.apache.calcite.util.Source;
 import org.apache.calcite.util.Sources;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.io.CharSink;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
+import java.util.stream.Stream;
 
 /**
  * Schema mapped onto a directory of CSV files. Each table in the schema
@@ -108,15 +118,59 @@ public class CsvSchema extends AbstractSchema {
   private Table createTable(Source source) {
     switch (flavor) {
     case TRANSLATABLE:
-      return new CsvTranslatableTable(source, null);
+      return new CsvTranslatableTable(source, null, getStatistic(source));
     case SCANNABLE:
-      return new CsvScannableTable(source, null);
+      return new CsvScannableTable(source, null, getStatistic(source));
     case FILTERABLE:
-      return new CsvFilterableTable(source, null);
+      return new CsvFilterableTable(source, null, getStatistic(source));
     default:
       throw new AssertionError("Unknown flavor " + this.flavor);
     }
   }
+
+  private Statistic getStatistic(Source source) {
+    Statistic statistic = null;
+    try {
+      final String statfilename = source.file().getAbsolutePath().concat(".stat");
+      statistic = readStatisticFromFile(statfilename);
+      if (statistic != null) {
+        final Stream<String> lines = Files.lines(Paths.get(source.file().toURI()));
+        statistic = Statistics.of(lines.count(), ImmutableList.of());
+        writeStatisticFile(statistic,
+                Paths.get(source.file().getAbsolutePath().concat(".stat")));
+      }
+    } catch (IOException ignored) {
+    }
+    return statistic;
+  }
+
+  private Statistic readStatisticFromFile(String filename) throws IOException {
+    Path path = Paths.get(filename);
+    try {
+      if (Files.exists(Paths.get(filename))) {
+        final String firstLine = com.google.common.io.Files.
+                readFirstLine(path.toFile(), Charset.defaultCharset());
+        if (firstLine != null) {
+          final String[] split = firstLine.trim().split(":");
+          if (split.length == 2) {
+            double rows = Double.parseDouble(split[1]);
+            return Statistics.of(rows, ImmutableList.of());
+          }
+        }
+      }
+    } catch (Exception ignored) {
+    }
+    return null;
+  }
+
+  private void writeStatisticFile(Statistic statistic, Path path) throws IOException {
+    if (!Files.exists(path)) {
+      final CharSink charSink = com.google.common.io.Files
+              .asCharSink(path.toFile(), Charset.defaultCharset());
+      charSink.write("rows:" + statistic.getRowCount().toString());
+    }
+  }
+
 }
 
 // End CsvSchema.java

@@ -29,11 +29,14 @@ import org.apache.calcite.util.Util;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.io.CharSink;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
@@ -155,6 +158,8 @@ class FileSchema extends AbstractSchema {
       try {
         final Stream<String> lines = Files.lines(Paths.get(sourceSansCsv.file().toURI()));
         statistics = Statistics.of(lines.count(), ImmutableList.of());
+        writeStatisticFile(statistics,
+                Paths.get(sourceSansCsv.file().getAbsolutePath().concat(".stat")));
       } catch (IOException ignored) {
 
       }
@@ -176,6 +181,15 @@ class FileSchema extends AbstractSchema {
 
     return false;
   }
+
+  private void writeStatisticFile(Statistic statistic, Path path) throws IOException {
+    if (!Files.exists(path)) {
+      final CharSink charSink = com.google.common.io.Files
+              .asCharSink(path.toFile(), Charset.defaultCharset());
+      charSink.write("rows:" + statistic.getRowCount().toString());
+    }
+  }
+
 }
 
 // End FileSchema.java

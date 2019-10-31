@@ -29,6 +29,7 @@ import org.apache.calcite.rel.type.RelProtoDataType;
 import org.apache.calcite.schema.QueryableTable;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.schema.Schemas;
+import org.apache.calcite.schema.Statistic;
 import org.apache.calcite.schema.TranslatableTable;
 import org.apache.calcite.util.Source;
 
@@ -42,7 +43,11 @@ public class CsvTranslatableTable extends CsvTable
     implements QueryableTable, TranslatableTable {
   /** Creates a CsvTable. */
   CsvTranslatableTable(Source source, RelProtoDataType protoRowType) {
-    super(source, protoRowType);
+    super(source, protoRowType, null);
+  }
+
+  CsvTranslatableTable(Source source, RelProtoDataType protoRowType, Statistic statistic) {
+    super(source, protoRowType, statistic);
   }
 
   public String toString() {

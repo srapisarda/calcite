@@ -42,8 +42,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class CsvFilterableTable extends CsvTable
     implements FilterableTable {
   /** Creates a CsvFilterableTable. */
-  CsvFilterableTable(File file, RelProtoDataType protoRowType, Statistic statistic) {
-    super(file, protoRowType, statistic);
+  public CsvFilterableTable(Source source, RelProtoDataType protoRowType, Statistic statistic) {
+    super(source, protoRowType, statistic);
   }
 
   public String toString() {
